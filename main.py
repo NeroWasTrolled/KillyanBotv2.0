@@ -408,7 +408,7 @@ async def edit(ctx, *, new_content: str):
                                 await webhook.edit_message(message_id=original_message.id, content=new_content, thread=ctx.channel)
                             else:
                                 await webhook.edit_message(message_id=original_message.id, content=new_content)
-                            await ctx.message.delete()  # Deleta a mensagem do comando do usuário
+                            await ctx.message.delete()  
                         except discord.errors.NotFound:
                             await ctx.send("- > **Não consegui encontrar a mensagem para editar. Verifique se a mensagem ainda existe.**")
                         return
