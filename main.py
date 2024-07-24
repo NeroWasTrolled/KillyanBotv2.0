@@ -9,6 +9,7 @@ from discord import Webhook
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.messages = True
 bot = commands.Bot(command_prefix=['kill!', 'Kill!'], intents=intents)
 
 conn = sqlite3.connect('characters.db')
@@ -35,7 +36,8 @@ def create_tables():
             message_count INTEGER DEFAULT 0, 
             registered_at TEXT DEFAULT CURRENT_TIMESTAMP, 
             private INTEGER DEFAULT 0,
-            webhook_url TEXT
+            webhook_url TEXT,
+            message_id INTEGER
         )''',
         '''CREATE TABLE IF NOT EXISTS inventory (
             id INTEGER PRIMARY KEY AUTOINCREMENT, 
@@ -467,11 +469,9 @@ async def on_message(self, message):
     if message.author == self.bot.user:
         return
 
-    # Seleciona todos os personagens da tabela characters
     c.execute("SELECT character_id, name, prefix, image_url, user_id FROM characters")
     characters = c.fetchall()
 
-    # Mapeia os personagens pelos prefixos e user_id
     character_data = {(prefix, user_id): (character_id, name, image_url) for character_id, name, prefix, image_url, user_id in characters}
 
     message_lines = message.content.split("\n")
@@ -489,7 +489,6 @@ async def on_message(self, message):
             user_mention = referenced_message.author.mention
 
             if referenced_message.webhook_id:
-                # Tenta obter o user_id do KillyanHook database
                 c.execute("SELECT user_id FROM characters WHERE name=?", (character_name,))
                 original_author_data = c.fetchone()
                 if original_author_data:

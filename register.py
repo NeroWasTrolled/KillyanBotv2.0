@@ -8,8 +8,13 @@ import math
 import datetime
 from xp import xp_for_next_level
 
-conn = sqlite3.connect('characters.db')
+conn = sqlite3.connect('characters.db', check_same_thread=False)
 c = conn.cursor()
+
+c.execute("CREATE INDEX IF NOT EXISTS idx_user_id ON characters (user_id)")
+c.execute("CREATE INDEX IF NOT EXISTS idx_name ON characters (name COLLATE NOCASE)")
+c.execute("CREATE INDEX IF NOT EXISTS idx_prefix ON characters (prefix)")
+conn.commit()
 
 def parse_registration_args(args):
     name_match = re.match(r"'(.+?)'", args)
@@ -69,15 +74,16 @@ def register_commands(bot):
         image_url = ctx.message.attachments[0].url if ctx.message.attachments else None
         user_id = ctx.author.id
         registered_at = datetime.datetime.now().strftime("%Y-%m-%d")
+        message_id = ctx.message.id if ctx.message.attachments else None
+
         c.execute(
-            "INSERT INTO characters (name, prefix, image_url, user_id, registered_at) VALUES (?, ?, ?, ?, ?)",
-            (name, prefix, image_url, user_id, registered_at))
+            "INSERT INTO characters (name, prefix, image_url, user_id, registered_at, message_id) VALUES (?, ?, ?, ?, ?, ?)",
+            (name, prefix, image_url, user_id, registered_at, message_id))
         conn.commit()
         await send_embed(
             ctx, "**__```𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌 𝐑𝐄𝐆𝐈𝐒𝐓𝐑𝐀𝐃𝐎!!!```__**",
             f'- > **Personagem** **__{name}__** **registrado com sucesso com o prefixo `{prefix}`!**',
             discord.Color.green(), image_url)
-
 
     @bot.command(name='brackets')
     async def brackets(ctx, name: str, new_prefix: str):
@@ -111,7 +117,6 @@ def register_commands(bot):
                 ctx, "**__```𝐏𝐑𝐄𝐅𝐈𝐗𝐎 𝐀𝐓𝐔𝐀𝐋𝐈𝐙𝐀𝐃𝐎```__**",
                 f'- > **Prefixo do personagem** **__{name}__** **atualizado para `{new_prefix}` com sucesso.**',
                 discord.Color.green())
-
 
     @bot.command(name='remove')
     async def remove(ctx, *, name: str):
@@ -316,7 +321,7 @@ def register_commands(bot):
     @bot.command(name='avatar')
     async def avatar(ctx, *, name: str):
         c.execute(
-            "SELECT image_url FROM characters WHERE name COLLATE NOCASE=? AND user_id=?",
+            "SELECT image_url, message_id FROM characters WHERE name COLLATE NOCASE=? AND user_id=?",
             (name, ctx.author.id))
         character = c.fetchone()
         if not character:
@@ -324,14 +329,27 @@ def register_commands(bot):
         else:
             if ctx.message.attachments:
                 image_url = ctx.message.attachments[0].url
+                message_id = ctx.message.id
                 c.execute(
-                    "UPDATE characters SET image_url=? WHERE name COLLATE NOCASE=? AND user_id=?",
-                    (image_url, name, ctx.author.id))
+                    "UPDATE characters SET image_url=?, message_id=? WHERE name COLLATE NOCASE=? AND user_id=?",
+                    (image_url, message_id, name, ctx.author.id))
                 conn.commit()
                 await send_embed(ctx, "**__```𝐀𝐕𝐀𝐓𝐀𝐑 𝐀𝐓𝐔𝐀𝐋𝐈𝐙𝐀𝐃𝐎!!!```__**", f"- > **Avatar do personagem** **__{name}__** **atualizado com sucesso.**", discord.Color.green(), image_url)
             else:
-                image_url = character[0]
-                await send_embed(ctx, f"**__```𝐀𝐕𝐀𝐓𝐀𝐑```__**", "", discord.Color.blue(), image_url)
+                image_url, message_id = character
+                if image_url:
+                    try:
+                        original_message = await ctx.channel.fetch_message(message_id)
+                        if original_message:
+                            await send_embed(ctx, f"**__```𝐀𝐕𝐀𝐓𝐀𝐑```__**", "", discord.Color.blue(), image_url)
+                    except discord.errors.NotFound:
+                        c.execute(
+                            "UPDATE characters SET image_url=NULL, message_id=NULL WHERE name COLLATE NOCASE=? AND user_id=?",
+                            (name, ctx.author.id))
+                        conn.commit()
+                        await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **Nenhum avatar definido para o personagem {name}. Para definir um avatar, forneça um link direto para a imagem ou faça o upload como um anexo ao executar este comando.**", discord.Color.red())
+                else:
+                    await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **Nenhum avatar definido para o personagem {name}. Para definir um avatar, forneça um link direto para a imagem ou faça o upload como um anexo ao executar este comando.**", discord.Color.red())
 
     @bot.command(name='rename')
     async def rename(ctx, *, args: str):
@@ -441,8 +459,11 @@ def register_commands(bot):
             self.add_item(self.page_number)
 
         async def on_submit(self, interaction):
-            page = int(self.page_number.value)
-            if 1 <= page <= self.total_pages:
-                await self.update_message(interaction, page)
-            else:
-                await interaction.response.send_message(f"Invalid page number. Please enter a number between 1 and {self.total_pages}.", ephemeral=True)
+            try:
+                page = int(self.page_number.value)
+                if 1 <= page <= self.total_pages:
+                    await self.update_message(interaction, page)
+                else:
+                    await interaction.response.send_message(f"Invalid page number. Please enter a number between 1 and {self.total_pages}.", ephemeral=True)
+            except ValueError:
+                await interaction.response.send_message("Invalid page number. Please enter a valid integer.", ephemeral=True)
