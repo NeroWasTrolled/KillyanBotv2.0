@@ -5,6 +5,7 @@ import re
 import sqlite3
 import aiohttp
 import math
+import datetime
 from xp import xp_for_next_level
 
 conn = sqlite3.connect('characters.db')
@@ -48,17 +49,26 @@ def register_commands(bot):
             return
 
         c.execute(
-            "SELECT 1 FROM characters WHERE (name COLLATE NOCASE=? OR prefix=?) AND user_id=?",
-            (name, prefix, ctx.author.id))
+            "SELECT 1 FROM characters WHERE name COLLATE NOCASE=? AND user_id=?",
+            (name, ctx.author.id))
         if c.fetchone():
-            await send_embed(ctx, "**__```𝐍𝐎𝐌𝐄 𝐎𝐔 𝐏𝐑𝐄𝐅𝐈𝐗𝐎 𝐄𝐌 𝐔𝐒𝐎```__**",
-                            "- > **O nome ou prefixo já estão em uso.**",
+            await send_embed(ctx, "**__```𝐍𝐎𝐌𝐄 𝐄𝐌 𝐔𝐒𝐎```__**",
+                            "- > **Você já tem um personagem com esse nome.**",
+                            discord.Color.red())
+            return
+
+        c.execute(
+            "SELECT 1 FROM characters WHERE prefix=? AND user_id=?",
+            (prefix, ctx.author.id))
+        if c.fetchone():
+            await send_embed(ctx, "**__```𝐏𝐑𝐄𝐅𝐈𝐗𝐎 𝐄𝐌 𝐔𝐒𝐎```__**",
+                            "- > **Você já tem um personagem com esse prefixo.**",
                             discord.Color.red())
             return
 
         image_url = ctx.message.attachments[0].url if ctx.message.attachments else None
         user_id = ctx.author.id
-        registered_at = sqlite3.datetime.datetime.now().strftime("%Y-%m-%d")
+        registered_at = datetime.datetime.now().strftime("%Y-%m-%d")
         c.execute(
             "INSERT INTO characters (name, prefix, image_url, user_id, registered_at) VALUES (?, ?, ?, ?, ?)",
             (name, prefix, image_url, user_id, registered_at))
@@ -67,6 +77,41 @@ def register_commands(bot):
             ctx, "**__```𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌 𝐑𝐄𝐆𝐈𝐒𝐓𝐑𝐀𝐃𝐎!!!```__**",
             f'- > **Personagem** **__{name}__** **registrado com sucesso com o prefixo `{prefix}`!**',
             discord.Color.green(), image_url)
+
+
+    @bot.command(name='brackets')
+    async def brackets(ctx, name: str, new_prefix: str):
+        if not re.search(r'[^a-zA-Z0-9\s]', new_prefix):
+            await send_embed(
+                ctx, "**__```𝐏𝐑𝐄𝐅𝐈𝐗𝐎 𝐈𝐍𝐕𝐀́𝐋𝐈𝐃𝐎```__**",
+                '- > **O novo prefixo deve conter pelo menos um caractere especial.**',
+                discord.Color.red())
+            return
+
+        c.execute(
+            "SELECT 1 FROM characters WHERE prefix=? AND user_id=?",
+            (new_prefix, ctx.author.id))
+        if c.fetchone():
+            await send_embed(ctx, "**__```𝐏𝐑𝐄𝐅𝐈𝐗𝐎 𝐄𝐌 𝐔𝐒𝐎```__**",
+                            "- > **Você já tem um personagem com esse prefixo.**",
+                            discord.Color.red())
+            return
+
+        c.execute(
+            "UPDATE characters SET prefix=? WHERE name COLLATE NOCASE=? AND user_id=?",
+            (new_prefix, name, ctx.author.id))
+        if c.rowcount == 0:
+            await send_embed(
+                ctx, "**__```𝐄𝐑𝐑𝐎```__**",
+                '- > **Personagem não encontrado ou você não tem permissão para alterar o prefixo.**',
+                discord.Color.red())
+        else:
+            conn.commit()
+            await send_embed(
+                ctx, "**__```𝐏𝐑𝐄𝐅𝐈𝐗𝐎 𝐀𝐓𝐔𝐀𝐋𝐈𝐙𝐀𝐃𝐎```__**",
+                f'- > **Prefixo do personagem** **__{name}__** **atualizado para `{new_prefix}` com sucesso.**',
+                discord.Color.green())
+
 
     @bot.command(name='remove')
     async def remove(ctx, *, name: str):
@@ -287,39 +332,6 @@ def register_commands(bot):
             else:
                 image_url = character[0]
                 await send_embed(ctx, f"**__```𝐀𝐕𝐀𝐓𝐀𝐑```__**", "", discord.Color.blue(), image_url)
-
-    @bot.command(name='brackets')
-    async def brackets(ctx, name: str, new_prefix: str):
-        if not re.search(r'[^a-zA-Z0-9\s]', new_prefix):
-            await send_embed(
-                ctx, "**__```𝐏𝐑𝐄𝐅𝐈𝐗𝐎 𝐈𝐍𝐕𝐀́𝐋𝐈𝐃𝐎```__**",
-                '- > **O novo prefixo deve conter pelo menos um caractere especial.**',
-                discord.Color.red())
-            return
-
-        c.execute(
-            "SELECT 1 FROM characters WHERE prefix=? AND user_id=?",
-            (new_prefix, ctx.author.id))
-        if c.fetchone():
-            await send_embed(ctx, "**__```𝐏𝐑𝐄𝐅𝐈𝐗𝐎 𝐄𝐌 𝐔𝐒𝐎```__**",
-                            "- > **O prefixo já está em uso.**",
-                            discord.Color.red())
-            return
-
-        c.execute(
-            "UPDATE characters SET prefix=? WHERE name COLLATE NOCASE=? AND user_id=?",
-            (new_prefix, name, ctx.author.id))
-        if c.rowcount == 0:
-            await send_embed(
-                ctx, "**__```𝐄𝐑𝐑𝐎```__**",
-                '- > **Personagem não encontrado ou você não tem permissão para alterar o prefixo.**',
-                discord.Color.red())
-        else:
-            conn.commit()
-            await send_embed(
-                ctx, "**__```𝐏𝐑𝐄𝐅𝐈𝐗𝐎 𝐀𝐓𝐔𝐀𝐋𝐈𝐙𝐀𝐃𝐎```__**",
-                f'- > **Prefixo do personagem** **__{name}__** **atualizado para `{new_prefix}` com sucesso.**',
-                discord.Color.green())
 
     @bot.command(name='rename')
     async def rename(ctx, *, args: str):
