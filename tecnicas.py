@@ -177,7 +177,7 @@ class Techniques(commands.Cog):
         c.execute("SELECT character_id, name, prefix, image_url, user_id FROM characters")
         characters = c.fetchall()
 
-        character_data = {(character_id, user_id): (name, prefix, image_url) for character_id, name, prefix, image_url, user_id in characters}
+        character_data = {(user_id, name): (character_id, prefix, image_url) for character_id, name, prefix, image_url, user_id in characters}
 
         message_lines = message.content.split("\n")
         to_send = []
@@ -185,9 +185,11 @@ class Techniques(commands.Cog):
         current_character = None
         current_message = []
         reference_handled = False
+        prefix_count = 0
+        prefix_limit = 20
 
         for line in message_lines:
-            for (character_id, user_id), (name, prefix, image_url) in character_data.items():
+            for (user_id, name), (character_id, prefix, image_url) in character_data.items():
                 if line.startswith(prefix) and message.author.id == user_id:
                     if current_message:
                         new_message_content = "\n".join(current_message).strip()
@@ -204,6 +206,10 @@ class Techniques(commands.Cog):
                     current_character = (character_id, name, image_url)
                     current_message.append(line[len(prefix):].strip())
                     should_delete = True
+                    prefix_count += 1
+                    if prefix_count >= prefix_limit:
+                        await message.channel.send(f"- > **Você excedeu o limite de {prefix_limit} prefixos processados em uma mensagem.**")
+                        return
                     break
             else:
                 if current_character:
@@ -220,27 +226,26 @@ class Techniques(commands.Cog):
                 reply_content = f"{reply_header}\n{new_message_content}"
                 to_send.append((current_character, reply_content, message.attachments))
 
-        if current_character:
-            async with aiohttp.ClientSession() as session:
-                parent_channel = message.channel.parent if isinstance(message.channel, discord.Thread) else message.channel
-                webhook_name = f"KillyanHook-{current_character[0]}"
-                webhooks = await parent_channel.webhooks()
-                webhook = next((hook for hook in webhooks if hook.name == webhook_name), None)
-                if webhook is None:
-                    webhook = await parent_channel.create_webhook(name=webhook_name)
+        async with aiohttp.ClientSession() as session:
+            parent_channel = message.channel.parent if isinstance(message.channel, discord.Thread) else message.channel
+            webhook_name = "KillyanHook"
+            webhooks = await parent_channel.webhooks()
+            webhook = next((hook for hook in webhooks if hook.name == webhook_name), None)
+            if webhook is None:
+                webhook = await parent_channel.create_webhook(name=webhook_name)
 
-                for (character_id, name, image_url), reply_content, attachments in to_send:
-                    await webhook.send(
-                        content=reply_content,
-                        username=name,
-                        avatar_url=image_url,
-                        allowed_mentions=discord.AllowedMentions(users=True),
-                        suppress_embeds=True,
-                        files=[await attachment.to_file() for attachment in attachments]
-                    )
+            for (character_id, name, image_url), reply_content, attachments in to_send:
+                await webhook.send(
+                    content=reply_content,
+                    username=name,
+                    avatar_url=image_url,
+                    allowed_mentions=discord.AllowedMentions(users=True),
+                    suppress_embeds=True,
+                    files=[await attachment.to_file() for attachment in attachments]
+                )
 
-                    c.execute("UPDATE characters SET webhook_url=? WHERE character_id=?", (webhook.url, character_id))
-                    conn.commit()
+                c.execute("UPDATE characters SET webhook_url=? WHERE character_id=?", (webhook.url, character_id))
+                conn.commit()
 
         if should_delete:
             try:
