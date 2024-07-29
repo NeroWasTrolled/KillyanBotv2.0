@@ -611,6 +611,6 @@ bot.setup_hook = setup_hook
 import register
 register.register_commands(bot)
 
-bot.run('MTI2MTc2NTczMTEzODQwODYxMA.GSdysX.80VQSyAoOhZ2lgmv4O1CE3dnBLZZzA6VQgV_aM')
+bot.run('')
 
 conn.close()
