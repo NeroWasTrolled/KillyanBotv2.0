@@ -52,6 +52,10 @@ class AttributesModal1(Modal):
             await interaction.response.send_message("- > **Os atributos devem ser números inteiros.**", ephemeral=True)
             return
 
+        if any(attr < 0 for attr in (forca, resistencia, vitalidade)):
+            await interaction.response.send_message("- > **Os atributos devem ser valores positivos.**", ephemeral=True)
+            return
+
         view = View()
         view.add_item(AttributesModal2Button(self.class_name, forca, resistencia, vitalidade))
         await interaction.response.send_message("- > **Primeira parte dos atributos configurada.**", view=view, ephemeral=True)
@@ -77,6 +81,10 @@ class AttributesModal2(Modal):
             inteligencia = int(self.inteligencia.value)
         except ValueError:
             await interaction.response.send_message("- > **Os atributos devem ser números inteiros.**", ephemeral=True)
+            return
+
+        if any(attr < 0 for attr in (agilidade, sentidos, inteligencia)):
+            await interaction.response.send_message("- > **Os atributos devem ser valores positivos.**", ephemeral=True)
             return
 
         try:
@@ -238,7 +246,6 @@ async def showclass(ctx, *, class_name: str):
 
     class_name, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia = class_info
     description = (
-        f"**{class_name}**\n"
         f"# — • ***[*** __𝐀𝐓𝐓𝐑𝐈𝐁𝐔𝐓𝐄𝐒__ ***]*** • —\n"
         f"- ``` . . . ```\n"
         f"- 𝐒𝐓𝐑𝐄𝐍𝐆𝐓𝐇 ***[*** ` {forca} ` ***]***\n"
@@ -282,7 +289,7 @@ async def removecategory(ctx, *, category_name: str):
 async def vinculate(ctx, *, args: str):
     match = re.match(r"'(.+?)'\s*'(.+?)'", args)
     if not match:
-        await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Formato inválido.\n Use: kill!vinculate 'Nome da Classe' 'Nome da Categoria'**", discord.Color.red())
+        await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Formato inválido.**\n **Use: kill!vinculate 'Nome da Classe' 'Nome da Categoria'**", discord.Color.red())
         return
     class_name, category_name = match.groups()
     c.execute("SELECT class_id FROM classes WHERE class_name=?", (class_name,))
@@ -304,23 +311,27 @@ async def vinculate(ctx, *, args: str):
     except sqlite3.IntegrityError:
         await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Esta classe já está vinculada a esta categoria.**", discord.Color.red())
 
-@commands.has_permissions(administrator=True)
 @commands.command(name='assignclass')
 async def assignclass(ctx, *, args: str):
     character_name, main_class, sub_class1, sub_class2 = parse_assign_args(args)
     if not character_name or not main_class:
         await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Formato inválido. Use: kill!assignclass 'Nome do Personagem' ClassePrincipal [SubClasse1] [SubClasse2]**", discord.Color.red())
         return
-    c.execute("SELECT 1 FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (character_name, ctx.author.id))
-    if not c.fetchone():
+
+    c.execute("SELECT character_id FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (character_name, ctx.author.id))
+    character_row = c.fetchone()
+    if not character_row:
         await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **Personagem '{character_name}' não encontrado ou você não tem permissão para atribuir classes.**", discord.Color.red())
         return
+
+    character_id = character_row[0]
 
     c.execute("SELECT forca, resistencia, agilidade, sentidos, vitalidade, inteligencia FROM classes WHERE class_name=?", (main_class,))
     main_attrs = c.fetchone()
     if not main_attrs:
         await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **Classe principal '{main_class}' não encontrada.**", discord.Color.red())
         return
+
     forca, resistencia, agilidade, sentidos, vitalidade, inteligencia = main_attrs
 
     if sub_class1:
@@ -330,20 +341,12 @@ async def assignclass(ctx, *, args: str):
             await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **Sub-classe 1 '{sub_class1}' não encontrada.**", discord.Color.red())
             return
 
-        if sub_class2:
-            forca += sub1_attrs[0] // 2
-            resistencia += sub1_attrs[1] // 2
-            agilidade += sub1_attrs[2] // 2
-            sentidos += sub1_attrs[3] // 2
-            vitalidade += sub1_attrs[4] // 2
-            inteligencia += sub1_attrs[5] // 2
-        else:
-            forca += sub1_attrs[0] * 3 // 4
-            resistencia += sub1_attrs[1] * 3 // 4
-            agilidade += sub1_attrs[2] * 3 // 4
-            sentidos += sub1_attrs[3] * 3 // 4
-            vitalidade += sub1_attrs[4] * 3 // 4
-            inteligencia += sub1_attrs[5] * 3 // 4
+        forca += sub1_attrs[0] // 2
+        resistencia += sub1_attrs[1] // 2
+        agilidade += sub1_attrs[2] // 2
+        sentidos += sub1_attrs[3] // 2
+        vitalidade += sub1_attrs[4] // 2
+        inteligencia += sub1_attrs[5] // 2
 
     if sub_class2:
         c.execute("SELECT forca, resistencia, agilidade, sentidos, vitalidade, inteligencia FROM classes WHERE class_name=?", (sub_class2,))
@@ -351,6 +354,7 @@ async def assignclass(ctx, *, args: str):
         if not sub2_attrs:
             await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **Sub-classe 2 '{sub_class2}' não encontrada.**", discord.Color.red())
             return
+
         forca += sub2_attrs[0] // 4
         resistencia += sub2_attrs[1] // 4
         agilidade += sub2_attrs[2] // 4
@@ -358,15 +362,19 @@ async def assignclass(ctx, *, args: str):
         vitalidade += sub2_attrs[4] // 4
         inteligencia += sub2_attrs[5] // 4
 
-    c.execute("DELETE FROM characters_classes WHERE character_name COLLATE NOCASE=? AND user_id=?", (character_name, ctx.author.id))
-    c.execute("INSERT INTO characters_classes (character_name, main_class, sub_class1, sub_class2) VALUES (?, ?, ?, ?)",
-              (character_name, main_class, sub_class1, sub_class2))
+    c.execute('''UPDATE characters SET forca = ?, resistencia = ?, agilidade = ?, 
+                 sentidos = ?, vitalidade = ?, inteligencia = ? WHERE character_id = ?''',
+              (forca, resistencia, agilidade, sentidos, vitalidade, inteligencia, character_id))
 
-    c.execute('''UPDATE characters SET forca = forca + ?, resistencia = resistencia + ?, agilidade = agilidade + ?, 
-                 sentidos = sentidos + ?, vitalidade = vitalidade + ?, inteligencia = inteligencia + ? WHERE name COLLATE NOCASE = ? AND user_id=?''',
-              (forca, resistencia, agilidade, sentidos, vitalidade, inteligencia, character_name, ctx.author.id))
-
+    c.execute("DELETE FROM characters_classes WHERE character_id=?", (character_id,))
+    c.execute("INSERT INTO characters_classes (character_id, main_class, sub_class1, sub_class2, user_id) VALUES (?, ?, ?, ?, ?)",
+              (character_id, main_class, sub_class1, sub_class2, ctx.author.id))
     conn.commit()
+
+    c.execute("SELECT * FROM characters_classes WHERE character_id=?", (character_id,))
+    debug_classes = c.fetchone()
+    print(f"DEBUG: Assigned classes for {character_name}: {debug_classes}")
+
     await send_embed(ctx, "𝐂𝐋𝐀𝐒𝐒𝐄 𝐀𝐓𝐑𝐈𝐁𝐔𝐈́𝐃𝐀", f'- > **Classe** **__{main_class}__** **e sub-classes atribuídas ao personagem** **__{character_name}__** **com sucesso.**', discord.Color.green())
 
 def parse_assign_args(args):

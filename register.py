@@ -3,7 +3,6 @@ from discord.ext import commands
 from discord.ui import Button, View, Modal, TextInput
 import re
 import sqlite3
-import aiohttp
 import math
 import datetime
 from xp import xp_for_next_level
@@ -18,13 +17,8 @@ conn.commit()
 
 def parse_registration_args(args):
     name_match = re.match(r"'(.+?)'", args)
-    if name_match:
-        name = name_match.group(1)
-        args = args[name_match.end():].strip()
-    else:
-        parts = args.split()
-        name = parts[0]
-        args = ' '.join(parts[1:])
+    name = name_match.group(1) if name_match else args.split()[0]
+    args = args[name_match.end():].strip() if name_match else ' '.join(args.split()[1:])
     prefix_match = re.search(r"(.+?)\s*Text$", args, re.IGNORECASE)
     prefix = prefix_match.group(1).strip() if prefix_match else None
     return name, prefix
@@ -40,289 +34,241 @@ def register_commands(bot):
     async def register(ctx, *, args: str):
         name, prefix = parse_registration_args(args)
         if not name or not prefix:
-            await send_embed(
-                ctx, "**__```𝐅𝐎𝐑𝐌𝐀𝐓𝐎 𝐈𝐍𝐕𝐀́𝐋𝐈𝐃𝐎```__**",
-                "- > **Use: kill!register 'Nome' Prefixo Text**",
-                discord.Color.red())
+            await send_embed(ctx, "**__```𝐅𝐎𝐑𝐌𝐀𝐓𝐎 𝐈𝐍𝐕𝐀́𝐋𝐈𝐃𝐎```__**", "- > **Use: kill!register 'Nome' Prefixo Text**", discord.Color.red())
             return
 
         if not re.search(r'[^a-zA-Z0-9\s]', prefix):
-            await send_embed(
-                ctx, "**__```𝐏𝐑𝐄𝐅𝐈𝐗𝐎 𝐈𝐍𝐕𝐀́𝐋𝐈𝐃𝐎```__**",
-                "- > **O prefixo deve conter pelo menos um caractere especial.**",
-                discord.Color.red())
+            await send_embed(ctx, "**__```𝐏𝐑𝐄𝐅𝐈𝐗𝐎 𝐈𝐍𝐕𝐀́𝐋𝐈𝐃𝐎```__**", "- > **O prefixo deve conter pelo menos um caractere especial.**", discord.Color.red())
             return
 
-        c.execute(
-            "SELECT 1 FROM characters WHERE name COLLATE NOCASE=? AND user_id=?",
-            (name, ctx.author.id))
+        c.execute("SELECT 1 FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (name, ctx.author.id))
         if c.fetchone():
-            await send_embed(ctx, "**__```𝐍𝐎𝐌𝐄 𝐄𝐌 𝐔𝐒𝐎```__**",
-                            "- > **Você já tem um personagem com esse nome.**",
-                            discord.Color.red())
+            await send_embed(ctx, "**__```𝐍𝐎𝐌𝐄 𝐄𝐌 𝐔𝐒𝐎```__**", "- > **Você já tem um personagem com esse nome.**", discord.Color.red())
             return
 
-        c.execute(
-            "SELECT 1 FROM characters WHERE prefix=? AND user_id=?",
-            (prefix, ctx.author.id))
+        c.execute("SELECT 1 FROM characters WHERE prefix=? AND user_id=?", (prefix, ctx.author.id))
         if c.fetchone():
-            await send_embed(ctx, "**__```𝐏𝐑𝐄𝐅𝐈𝐗𝐎 𝐄𝐌 𝐔𝐒𝐎```__**",
-                            "- > **Você já tem um personagem com esse prefixo.**",
-                            discord.Color.red())
+            await send_embed(ctx, "**__```𝐏𝐑𝐄𝐅𝐈𝐗𝐎 𝐄𝐌 𝐔𝐒𝐎```__**", "- > **Você já tem um personagem com esse prefixo.**", discord.Color.red())
             return
 
         image_url = ctx.message.attachments[0].url if ctx.message.attachments else None
-        user_id = ctx.author.id
         registered_at = datetime.datetime.now().strftime("%Y-%m-%d")
         message_id = ctx.message.id if ctx.message.attachments else None
 
         c.execute(
             "INSERT INTO characters (name, prefix, image_url, user_id, registered_at, message_id) VALUES (?, ?, ?, ?, ?, ?)",
-            (name, prefix, image_url, user_id, registered_at, message_id))
+            (name, prefix, image_url, ctx.author.id, registered_at, message_id)
+        )
         conn.commit()
-        await send_embed(
-            ctx, "**__```𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌 𝐑𝐄𝐆𝐈𝐒𝐓𝐑𝐀𝐃𝐎!!!```__**",
-            f'- > **Personagem** **__{name}__** **registrado com sucesso com o prefixo `{prefix}`!**',
-            discord.Color.green(), image_url)
+        await send_embed(ctx, "**__```𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌 𝐑𝐄𝐆𝐈𝐒𝐓𝐑𝐀𝐃𝐎!!!```__**",
+                         f'- > **Personagem** **__{name}__** **registrado com sucesso com o prefixo `{prefix}`!**',
+                         discord.Color.green(), image_url)
 
     @bot.command(name='brackets')
     async def brackets(ctx, name: str, new_prefix: str):
         if not re.search(r'[^a-zA-Z0-9\s]', new_prefix):
-            await send_embed(
-                ctx, "**__```𝐏𝐑𝐄𝐅𝐈𝐗𝐎 𝐈𝐍𝐕𝐀́𝐋𝐈𝐃𝐎```__**",
-                '- > **O novo prefixo deve conter pelo menos um caractere especial.**',
-                discord.Color.red())
+            await send_embed(ctx, "**__```𝐏𝐑𝐄𝐅𝐈𝐗𝐎 𝐈𝐍𝐕𝐀́𝐋𝐈𝐃𝐎```__**", '- > **O novo prefixo deve conter pelo menos um caractere especial.**', discord.Color.red())
             return
 
-        c.execute(
-            "SELECT 1 FROM characters WHERE prefix=? AND user_id=?",
-            (new_prefix, ctx.author.id))
+        c.execute("SELECT 1 FROM characters WHERE prefix=? AND user_id=?", (new_prefix, ctx.author.id))
         if c.fetchone():
-            await send_embed(ctx, "**__```𝐏𝐑𝐄𝐅𝐈𝐗𝐎 𝐄𝐌 𝐔𝐒𝐎```__**",
-                            "- > **Você já tem um personagem com esse prefixo.**",
-                            discord.Color.red())
+            await send_embed(ctx, "**__```𝐏𝐑𝐄𝐅𝐈𝐗𝐎 𝐄𝐌 𝐔𝐒𝐎```__**", "- > **Você já tem um personagem com esse prefixo.**", discord.Color.red())
             return
 
-        c.execute(
-            "UPDATE characters SET prefix=? WHERE name COLLATE NOCASE=? AND user_id=?",
-            (new_prefix, name, ctx.author.id))
+        c.execute("UPDATE characters SET prefix=? WHERE name COLLATE NOCASE=? AND user_id=?", (new_prefix, name, ctx.author.id))
         if c.rowcount == 0:
-            await send_embed(
-                ctx, "**__```𝐄𝐑𝐑𝐎```__**",
-                '- > **Personagem não encontrado ou você não tem permissão para alterar o prefixo.**',
-                discord.Color.red())
+            await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", '- > **Personagem não encontrado ou você não tem permissão para alterar o prefixo.**', discord.Color.red())
         else:
             conn.commit()
-            await send_embed(
-                ctx, "**__```𝐏𝐑𝐄𝐅𝐈𝐗𝐎 𝐀𝐓𝐔𝐀𝐋𝐈𝐙𝐀𝐃𝐎```__**",
-                f'- > **Prefixo do personagem** **__{name}__** **atualizado para `{new_prefix}` com sucesso.**',
-                discord.Color.green())
+            await send_embed(ctx, "**__```𝐏𝐑𝐄𝐅𝐈𝐗𝐎 𝐀𝐓𝐔𝐀𝐋𝐈𝐙𝐀𝐃𝐎```__**", f'- > **Prefixo do personagem** **__{name}__** **atualizado para `{new_prefix}` com sucesso.**', discord.Color.green())
 
     @bot.command(name='remove')
     async def remove(ctx, *, name: str):
-        c.execute(
-            "DELETE FROM characters WHERE name COLLATE NOCASE=? AND user_id=?",
-            (name, ctx.author.id))
+        c.execute("DELETE FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (name, ctx.author.id))
         if c.rowcount == 0:
-            await send_embed(
-                ctx, "**__```𝐄𝐑𝐑𝐎```__**",
-                "- > **Personagem não encontrado ou você não tem permissão para removê-lo.**",
-                discord.Color.red())
+            await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Personagem não encontrado ou você não tem permissão para removê-lo.**", discord.Color.red())
         else:
             conn.commit()
-            await send_embed(ctx, "**__```𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌 𝐑𝐄𝐌𝐎𝐕𝐈𝐃𝐎```__**",
-                            f'- > **Personagem** **__{name}__** **removido com sucesso.**',
-                            discord.Color.green())
+            await send_embed(ctx, "**__```𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌 𝐑𝐄𝐌𝐎𝐕𝐈𝐃𝐎```__**", f'- > **Personagem** **__{name}__** **removido com sucesso.**', discord.Color.green())
 
     @bot.command(name='details')
     async def details(ctx, *, name: str):
-        c.execute(
-            "SELECT name, prefix, image_url, experience, level, points, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia, rank, message_count, registered_at, webhook_url FROM characters WHERE name COLLATE NOCASE=? AND user_id=?",
-            (name, ctx.author.id))
+        c.execute("SELECT character_id, name, prefix, image_url, experience, level, points, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia, rank, message_count, registered_at, webhook_url FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (name, ctx.author.id))
         character = c.fetchone()
+
         if not character:
             await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Personagem não encontrado ou você não tem permissão para visualizá-lo.**", discord.Color.red())
-        else:
-            name, prefix, image_url, experience, level, points, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia, rank, message_count, registered_at, webhook_url = character
+            return
 
-            c.execute(
-                "SELECT main_class, sub_class1, sub_class2 FROM characters_classes WHERE character_name COLLATE NOCASE=? AND user_id=?",
-                (name, ctx.author.id))
-            classes = c.fetchone()
-            main_class = classes[0] if classes else "𝐍𝐎𝐍𝐄"
-            sub_class1 = classes[1] if classes and classes[1] else "𝐍𝐎𝐍𝐄"
-            sub_class2 = classes[2] if classes and classes[2] else "𝐍𝐎𝐍𝐄"
+        character_id, name, prefix, image_url, experience, level, points, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia, rank, message_count, registered_at, webhook_url = character
 
-            points_info = f"{points}" if points > 0 else "𝐍𝐎𝐍𝐄"
+        c.execute("SELECT main_class, sub_class1, sub_class2 FROM characters_classes WHERE character_id=?", (character_id,))
+        classes = c.fetchone()
 
-            description = (
-                f"``` 𝐈𝐍𝐅𝐎𝐑𝐌𝐀𝐓𝐈𝐎𝐍 ```- — ◇\n"
-                f"> **__𝐍𝐀𝐌𝐄__**\n"
-                f"● *{name}*\n"
-                f"> **__𝐏𝐑𝐄𝐅𝐈𝐗__**\n"
-                f"○ *{prefix}*\n"
-                f"> **__𝐋𝐄𝐕𝐄𝐋__**\n"
-                f"● *{level}*\n"
-                f"> **__𝐄𝐗𝐏__**\n"
-                f"○ *{experience}/{xp_for_next_level(level)}*\n"
-                f"> **__𝐂𝐋𝐀𝐒𝐒__**\n"
-                f"● *{main_class}*\n"
-                f"> **__𝐒𝐔𝐁𝐂𝐋𝐀𝐒𝐒__**\n"
-                f"○ *{sub_class1}, {sub_class2}*\n\n"
-                f"- — *[* **𝐏𝐎𝐈𝐍𝐓𝐒: ** ` {points_info} ` *]* —\n"
-                f"● ○ ***[*** `𝐑𝐀𝐍𝐊 {rank}` ***]*** ○ ●"
+        main_class = classes[0] if classes and classes[0] else "𝐍𝐎𝐍𝐄"
+        sub_class1 = classes[1] if classes and classes[1] else "𝐍𝐎𝐍𝐄"
+        sub_class2 = classes[2] if classes and classes[2] else "𝐍𝐎𝐍𝐄"
+
+        points_info = f"{points}" if points > 0 else "𝐍𝐎𝐍𝐄"
+
+        description = (
+            f"``` 𝐈𝐍𝐅𝐎𝐑𝐌𝐀𝐓𝐈𝐎𝐍 ```- — ◇\n"
+            f"> **__𝐍𝐀𝐌𝐄__**\n"
+            f"● *{name}*\n"
+            f"> **__𝐏𝐑𝐄𝐅𝐈𝐗__**\n"
+            f"○ *{prefix}*\n"
+            f"> **__𝐋𝐄𝐕𝐄𝐋__**\n"
+            f"● *{level}*\n"
+            f"> **__𝐄𝐗𝐏__**\n"
+            f"○ *{experience}/{xp_for_next_level(level)}*\n"
+            f"> **__𝐂𝐋𝐀𝐒𝐒__**\n"
+            f"● *{main_class}*\n"
+            f"> **__𝐒𝐔𝐁𝐂𝐋𝐀𝐒𝐒__**\n"
+            f"○ *{sub_class1}, {sub_class2}*\n\n"
+            f"- — *[* **𝐏𝐎𝐈𝐍𝐓𝐒: ** ` {points_info} ` *]* —\n"
+            f"● ○ ***[*** `𝐑𝐀𝐍𝐊 {rank}` ***]*** ○ ●"
+        )
+
+        embed = discord.Embed(title="``` 𝔻𝔼𝕋𝔸𝕀𝕃𝕊 ```", description=description, color=discord.Color.dark_grey())
+        if image_url:
+            embed.set_image(url=image_url)
+
+        button_status = Button(label="𝐒𝐓𝐀𝐓𝐔𝐒", style=discord.ButtonStyle.secondary, custom_id="show_status")
+        button_inventory = Button(label="𝐈𝐍𝐕𝐄𝐍𝐓𝐎𝐑𝐘", style=discord.ButtonStyle.secondary, custom_id="show_inventory")
+        button_techniques = Button(label="𝐓𝐄𝐂𝐇𝐍𝐈𝐐𝐔𝐄𝐒", style=discord.ButtonStyle.secondary, custom_id="show_techniques")
+
+        async def button_status_callback(interaction):
+            if interaction.user.id != ctx.author.id:
+                await interaction.response.send_message("- > **Você não tem permissão para ver os status deste personagem.**", ephemeral=True)
+                return
+
+            status_description = (
+                f"# — • ***[*** __𝐀𝐓𝐓𝐑𝐈𝐁𝐔𝐓𝐄𝐒__ ***]*** • —\n"
+                f"- ``` . . . ```\n"
+                f"- 𝐒𝐓𝐑𝐄𝐍𝐆𝐓𝐇 ***[*** ` {forca} ` ***]***\n"
+                f"- 𝐑𝐄𝐒𝐈𝐒𝐓𝐀𝐍𝐂𝐄 ***[*** ` {resistencia} ` ***]***\n"
+                f"- 𝐀𝐆𝐈𝐋𝐈𝐓𝐘 ***[*** ` {agilidade} ` ***]***\n"
+                f"- 𝐒𝐄𝐍𝐒𝐄𝐒 ***[*** ` {sentidos} ` ***]***\n"
+                f"- 𝐕𝐈𝐓𝐀𝐋𝐈𝐓𝐘 ***[*** ` {vitalidade} ` ***]***\n"
+                f"- 𝐈𝐍𝐓𝐄𝐋𝐋𝐈𝐆𝐄𝐍𝐂𝐄 ***[*** ` {inteligencia} ` ***]***\n"
+                f"- 𝐏𝐎𝐈𝐍𝐓𝐒 ***[*** ` {points} ` ***]***\n"
+                f"- ``` . . . ```"
             )
 
-            embed = discord.Embed(
-                title="``` 𝔻𝔼𝕋𝔸𝕀𝕃𝕊 ```",
-                description=description,
-                color=discord.Color.dark_grey()
-            )
-            if image_url:
-                embed.set_image(url=image_url)
+            status_embed = discord.Embed(title="``` 𝕊𝕋𝔸𝕋𝕌𝕊 ```", description=status_description, color=discord.Color.dark_grey())
+            button_details = Button(label="𝐃𝐄𝐓𝐀𝐈𝐋𝐒", style=discord.ButtonStyle.secondary, custom_id="show_details")
 
-            button_status = Button(label="𝐒𝐓𝐀𝐓𝐔𝐒", style=discord.ButtonStyle.secondary, custom_id="show_status")
-            button_inventory = Button(label="𝐈𝐍𝐕𝐄𝐍𝐓𝐎𝐑𝐘", style=discord.ButtonStyle.secondary, custom_id="show_inventory")
-            button_techniques = Button(label="𝐓𝐄𝐂𝐇𝐍𝐈𝐐𝐔𝐄𝐒", style=discord.ButtonStyle.secondary, custom_id="show_techniques")
+            async def button_details_callback(interaction):
+                await interaction.response.edit_message(embed=embed, view=view)
 
-            async def button_status_callback(interaction):
-                if interaction.user.id != ctx.author.id:
-                    await interaction.response.send_message("- > **Você não tem permissão para ver os status deste personagem.**", ephemeral=True)
-                    return
+            button_details.callback = button_details_callback
+            status_view = View()
+            status_view.add_item(button_details)
+            await interaction.response.edit_message(embed=status_embed, view=status_view)
 
-                status_description = (
-                    f"# — • ***[*** __𝐀𝐓𝐓𝐑𝐈𝐁𝐔𝐓𝐄𝐒__ ***]*** • —\n"
-                    f"- ``` . . . ```\n"
-                    f"- 𝐒𝐓𝐑𝐄𝐍𝐆𝐓𝐇 ***[*** ` {forca} ` ***]***\n"
-                    f"- 𝐑𝐄𝐒𝐈𝐒𝐓𝐀𝐍𝐂𝐄 ***[*** ` {resistencia} ` ***]***\n"
-                    f"- 𝐀𝐆𝐈𝐋𝐈𝐓𝐘 ***[*** ` {agilidade} ` ***]***\n"
-                    f"- 𝐒𝐄𝐍𝐒𝐄𝐒 ***[*** ` {sentidos} ` ***]***\n"
-                    f"- 𝐕𝐈𝐓𝐀𝐋𝐈𝐓𝐘 ***[*** ` {vitalidade} ` ***]***\n"
-                    f"- 𝐈𝐍𝐓𝐄𝐋𝐋𝐈𝐆𝐄𝐍𝐂𝐄 ***[*** ` {inteligencia} ` ***]***\n"
-                    f"- 𝐏𝐎𝐈𝐍𝐓𝐒 ***[*** ` {points} ` ***]***\n"
-                    f"- ``` . . . ```"
-                )
+        async def button_inventory_callback(interaction):
+            if interaction.user.id != ctx.author.id:
+                await interaction.response.send_message("- > **Você não tem permissão para ver o inventário deste personagem.**", ephemeral=True)
+                return
 
-                status_embed = discord.Embed(
-                    title="``` 𝕊𝕋𝔸𝕋𝕌𝕊 ```",
-                    description=status_description,
-                    color=discord.Color.dark_grey()
-                )
-                button_details = Button(label="𝐃𝐄𝐓𝐀𝐈𝐋𝐒", style=discord.ButtonStyle.secondary, custom_id="show_details")
+            c.execute("SELECT item_name, description, image_url FROM inventory WHERE character_id=?", (character_id,))
+            items = c.fetchall()
+            per_page = 5
+            total_pages = math.ceil(len(items) / per_page)
+            current_page = 1
 
-                async def button_details_callback(interaction):
-                    await interaction.response.edit_message(embed=embed, view=view)
+            async def update_inventory_message(interaction, page):
+                if page < 1:
+                    page = total_pages
+                elif page > total_pages:
+                    page = 1
+                inventory_embed = await create_inventory_embed(items, page, per_page, total_pages, name)
+                await interaction.response.edit_message(embed=inventory_embed, view=create_inventory_view(page))
 
-                button_details.callback = button_details_callback
-                status_view = View()
-                status_view.add_item(button_details)
-                await interaction.response.edit_message(embed=status_embed, view=status_view)
+            def create_inventory_view(page):
+                view = View()
+                buttons = [
+                    ("⏪", 1), ("◀", page - 1), ("𝐃𝐄𝐓𝐀𝐈𝐋𝐒", None), ("▶", page + 1), ("⏩", total_pages)
+                ]
+                for label, target_page in buttons:
+                    button = Button(label=label, style=discord.ButtonStyle.primary)
+                    button.callback = lambda interaction, tp=target_page: update_inventory_message(interaction, tp) if tp else return_to_details(interaction)
+                    view.add_item(button)
+                return view
 
-            async def button_inventory_callback(interaction):
-                if interaction.user.id != ctx.author.id:
-                    await interaction.response.send_message("- > **Você não tem permissão para ver o inventário deste personagem.**", ephemeral=True)
-                    return
+            async def create_inventory_embed(items, page, per_page, total_pages, character_name):
+                start = (page - 1) * per_page
+                end = start + per_page
+                item_list = items[start:end]
+                embed = discord.Embed(title=f"𝐈𝐧𝐯𝐞𝐧𝐭𝐨́𝐫𝐢𝐨 𝐝𝐞 {character_name} (página {page}/{total_pages})", color=discord.Color.dark_grey())
+                description = "\n".join([f"# **{item_name}**\n- > {description}" for item_name, description, image_url in item_list])
+                embed.description = description
+                return embed
 
-                c.execute("SELECT item_name, description, image_url FROM inventory WHERE character_name COLLATE NOCASE=? AND user_id=?", (name, ctx.author.id))
-                items = c.fetchall()
-                per_page = 5
-                total_pages = math.ceil(len(items) / per_page)
-                current_page = 1
+            async def return_to_details(interaction):
+                await interaction.response.edit_message(embed=embed, view=view)
 
-                async def update_inventory_message(interaction, page):
-                    if page < 1:
-                        page = total_pages
-                    elif page > total_pages:
-                        page = 1
-                    inventory_embed = await create_inventory_embed(items, page, per_page, total_pages, name)
-                    await interaction.response.edit_message(embed=inventory_embed, view=create_inventory_view(page))
+            inventory_embed = await create_inventory_embed(items, current_page, per_page, total_pages, name)
+            await interaction.response.edit_message(embed=inventory_embed, view=create_inventory_view(current_page))
 
-                def create_inventory_view(page):
-                    view = View()
-                    buttons = [
-                        ("⏪", 1), ("◀", page - 1), ("𝐃𝐄𝐓𝐀𝐈𝐋𝐒", None), ("▶", page + 1), ("⏩", total_pages)
-                    ]
-                    for label, target_page in buttons:
-                        button = Button(label=label, style=discord.ButtonStyle.primary)
-                        button.callback = lambda interaction, tp=target_page: update_inventory_message(interaction, tp) if tp else return_to_details(interaction)
-                        view.add_item(button)
-                    return view
+        async def button_techniques_callback(interaction):
+            if interaction.user.id != ctx.author.id:
+                await interaction.response.send_message("- > **Você não tem permissão para ver as técnicas deste personagem.**", ephemeral=True)
+                return
 
-                async def create_inventory_embed(items, page, per_page, total_pages, character_name):
-                    start = (page - 1) * per_page
-                    end = start + per_page
-                    item_list = items[start:end]
-                    embed = discord.Embed(title=f"𝐈𝐧𝐯𝐞𝐧𝐭𝐨́𝐫𝐢𝐨 𝐝𝐞 {character_name} (página {page}/{total_pages})", color=discord.Color.dark_grey())
-                    description = "\n".join([f"# **{item_name}**\n- > {description}" for item_name, description, image_url in item_list])
-                    embed.description = description
-                    return embed
+            c.execute("SELECT technique_name, description FROM techniques WHERE character_id=?", (character_id,))
+            techniques = c.fetchall()
+            per_page = 5
+            total_pages = math.ceil(len(techniques) / per_page)
+            current_page = 1
 
-                async def return_to_details(interaction):
-                    await interaction.response.edit_message(embed=embed, view=view)
+            async def update_techniques_message(interaction, page):
+                if page < 1:
+                    page = total_pages
+                elif page > total_pages:
+                    page = 1
+                techniques_embed = await create_techniques_embed(techniques, page, per_page, total_pages, name)
+                await interaction.response.edit_message(embed=techniques_embed, view=create_technique_view(page))
 
-                inventory_embed = await create_inventory_embed(items, current_page, per_page, total_pages, name)
-                await interaction.response.edit_message(embed=inventory_embed, view=create_inventory_view(current_page))
+            def create_technique_view(page):
+                view = View()
+                buttons = [
+                    ("⏪", 1), ("◀", page - 1), ("𝐃𝐄𝐓𝐀𝐈𝐋𝐒", None), ("▶", page + 1), ("⏩", total_pages)
+                ]
+                for label, target_page in buttons:
+                    button = Button(label=label, style=discord.ButtonStyle.primary)
+                    button.callback = lambda interaction, tp=target_page: update_techniques_message(interaction, tp) if tp else return_to_details(interaction)
+                    view.add_item(button)
+                return view
 
-            async def button_techniques_callback(interaction):
-                if interaction.user.id != ctx.author.id:
-                    await interaction.response.send_message("- > **Você não tem permissão para ver as técnicas deste personagem.**", ephemeral=True)
-                    return
+            async def create_techniques_embed(techniques, page, per_page, total_pages, character_name):
+                start = (page - 1) * per_page
+                end = start + per_page
+                technique_list = techniques[start:end]
+                embed = discord.Embed(title=f"Técnicas registradas para o personagem {character_name} (página {page}/{total_pages})", color=discord.Color.dark_grey())
+                description = "\n".join([f"**{technique_name}**\n{description}" for technique_name, description in technique_list])
+                embed.description = description
+                return embed
 
-                c.execute("SELECT technique_name, description FROM techniques WHERE character_name COLLATE NOCASE=? AND user_id=?", (name, ctx.author.id))
-                techniques = c.fetchall()
-                per_page = 5
-                total_pages = math.ceil(len(techniques) / per_page)
-                current_page = 1
+            async def return_to_details(interaction):
+                await interaction.response.edit_message(embed=embed, view=view)
 
-                async def update_techniques_message(interaction, page):
-                    if page < 1:
-                        page = total_pages
-                    elif page > total_pages:
-                        page = 1
-                    techniques_embed = await create_techniques_embed(techniques, page, per_page, total_pages, name)
-                    await interaction.response.edit_message(embed=techniques_embed, view=create_technique_view(page))
+            techniques_embed = await create_techniques_embed(techniques, current_page, per_page, total_pages, name)
+            await interaction.response.edit_message(embed=techniques_embed, view=create_technique_view(current_page))
 
-                def create_technique_view(page):
-                    view = View()
-                    buttons = [
-                        ("⏪", 1), ("◀", page - 1), ("𝐃𝐄𝐓𝐀𝐈𝐋𝐒", None), ("▶", page + 1), ("⏩", total_pages)
-                    ]
-                    for label, target_page in buttons:
-                        button = Button(label=label, style=discord.ButtonStyle.primary)
-                        button.callback = lambda interaction, tp=target_page: update_techniques_message(interaction, tp) if tp else return_to_details(interaction)
-                        view.add_item(button)
-                    return view
+        button_status.callback = button_status_callback
+        button_inventory.callback = button_inventory_callback
+        button_techniques.callback = button_techniques_callback
+        view = View()
+        view.add_item(button_status)
+        view.add_item(button_inventory)
+        view.add_item(button_techniques)
 
-                async def create_techniques_embed(techniques, page, per_page, total_pages, character_name):
-                    start = (page - 1) * per_page
-                    end = start + per_page
-                    technique_list = techniques[start:end]
-                    embed = discord.Embed(title=f"Técnicas registradas para o personagem {character_name} (página {page}/{total_pages})", color=discord.Color.dark_grey())
-                    description = "\n".join([f"**{technique_name}**\n{description}" for technique_name, description in technique_list])
-                    embed.description = description
-                    return embed
-
-                async def return_to_details(interaction):
-                    await interaction.response.edit_message(embed=embed, view=view)
-
-                techniques_embed = await create_techniques_embed(techniques, current_page, per_page, total_pages, name)
-                await interaction.response.edit_message(embed=techniques_embed, view=create_technique_view(current_page))
-
-            button_status.callback = button_status_callback
-            button_inventory.callback = button_inventory_callback
-            button_techniques.callback = button_techniques_callback
-            view = View()
-            view.add_item(button_status)
-            view.add_item(button_inventory)
-            view.add_item(button_techniques)
-
-            await ctx.send(embed=embed, view=view)
+        await ctx.send(embed=embed, view=view)
 
     @bot.command(name='avatar')
     async def avatar(ctx, *, name: str):
-        c.execute(
-            "SELECT image_url, message_id FROM characters WHERE name COLLATE NOCASE=? AND user_id=?",
-            (name, ctx.author.id))
+        c.execute("SELECT image_url, message_id FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (name, ctx.author.id))
         character = c.fetchone()
         if not character:
             await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Personagem não encontrado ou você não tem permissão para visualizar ou atualizar o avatar.**", discord.Color.red())
@@ -330,9 +276,7 @@ def register_commands(bot):
             if ctx.message.attachments:
                 image_url = ctx.message.attachments[0].url
                 message_id = ctx.message.id
-                c.execute(
-                    "UPDATE characters SET image_url=?, message_id=? WHERE name COLLATE NOCASE=? AND user_id=?",
-                    (image_url, message_id, name, ctx.author.id))
+                c.execute("UPDATE characters SET image_url=?, message_id=? WHERE name COLLATE NOCASE=? AND user_id=?", (image_url, message_id, name, ctx.author.id))
                 conn.commit()
                 await send_embed(ctx, "**__```𝐀𝐕𝐀𝐓𝐀𝐑 𝐀𝐓𝐔𝐀𝐋𝐈𝐙𝐀𝐃𝐎!!!```__**", f"- > **Avatar do personagem** **__{name}__** **atualizado com sucesso.**", discord.Color.green(), image_url)
             else:
@@ -343,9 +287,7 @@ def register_commands(bot):
                         if original_message:
                             await send_embed(ctx, f"**__```𝐀𝐕𝐀𝐓𝐀𝐑```__**", "", discord.Color.blue(), image_url)
                     except discord.errors.NotFound:
-                        c.execute(
-                            "UPDATE characters SET image_url=NULL, message_id=NULL WHERE name COLLATE NOCASE=? AND user_id=?",
-                            (name, ctx.author.id))
+                        c.execute("UPDATE characters SET image_url=NULL, message_id=NULL WHERE name COLLATE NOCASE=? AND user_id=?", (name, ctx.author.id))
                         conn.commit()
                         await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **Nenhum avatar definido para o personagem {name}. Para definir um avatar, forneça um link direto para a imagem ou faça o upload como um anexo ao executar este comando.**", discord.Color.red())
                 else:
@@ -355,35 +297,22 @@ def register_commands(bot):
     async def rename(ctx, *, args: str):
         match = re.match(r"'(.+?)'\s*'(.+?)'", args)
         if not match:
-            await send_embed(ctx, "**__```𝐅𝐎𝐑𝐌𝐀𝐓𝐎 𝐈𝐍𝐕𝐀́𝐋𝐈𝐃𝐎```__**",
-                            "- > **Use: kill!rename 'Nome Antigo' 'Nome Novo'**",
-                            discord.Color.red())
+            await send_embed(ctx, "**__```𝐅𝐎𝐑𝐌𝐀𝐓𝐎 𝐈𝐍𝐕𝐀́𝐋𝐈𝐃𝐎```__**", "- > **Use: kill!rename 'Nome Antigo' 'Nome Novo'**", discord.Color.red())
             return
 
         old_name, new_name = match.groups()
 
-        c.execute(
-            "SELECT 1 FROM characters WHERE name COLLATE NOCASE=? AND user_id=?",
-            (new_name, ctx.author.id))
+        c.execute("SELECT 1 FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (new_name, ctx.author.id))
         if c.fetchone():
-            await send_embed(ctx, "**__```𝐍𝐎𝐌𝐄 𝐄𝐌 𝐔𝐒𝐎```__**",
-                            "- > **O nome já está em uso.**",
-                            discord.Color.red())
+            await send_embed(ctx, "**__```𝐍𝐎𝐌𝐄 𝐄𝐌 𝐔𝐒𝐎```__**", "- > **O nome já está em uso.**", discord.Color.red())
             return
 
-        c.execute(
-            "UPDATE characters SET name=? WHERE name COLLATE NOCASE=? AND user_id=?",
-            (new_name, old_name, ctx.author.id))
+        c.execute("UPDATE characters SET name=? WHERE name COLLATE NOCASE=? AND user_id=?", (new_name, old_name, ctx.author.id))
         if c.rowcount == 0:
-            await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**",
-                '- > **Personagem não encontrado ou você não tem permissão para renomeá-lo.**',
-                discord.Color.red())
+            await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", '- > **Personagem não encontrado ou você não tem permissão para renomeá-lo.**', discord.Color.red())
         else:
             conn.commit()
-            await send_embed(
-                ctx, "**__```𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌 𝐑𝐄𝐍𝐎𝐌𝐄𝐀𝐃𝐎```__**",
-                f'- > **Personagem** **__{old_name}__** **renomeado para** **__{new_name}__** **com sucesso.**',
-                discord.Color.green())
+            await send_embed(ctx, "**__```𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌 𝐑𝐄𝐍𝐎𝐌𝐄𝐀𝐃𝐎```__**", f'- > **Personagem** **__{old_name}__** **renomeado para** **__{new_name}__** **com sucesso.**', discord.Color.green())
 
     @bot.command(name='list')
     async def list_characters(ctx, member: discord.Member = None):
@@ -440,8 +369,7 @@ def register_commands(bot):
     async def create_list_embed(characters, page, per_page, total_pages, total_results, display_name):
         start = (page - 1) * per_page
         end = start + per_page
-        embed = discord.Embed(title=f"{display_name}'s registered characters (page {page}/{total_pages})",
-                              color=discord.Color.dark_grey())
+        embed = discord.Embed(title=f"{display_name}'s registered characters (page {page}/{total_pages})", color=discord.Color.dark_grey())
         result_list = [
             f"**{name}**\n𝐁𝐑𝐀𝐂𝐊𝐄𝐓𝐒: {prefix}\n[𝐀𝐕𝐀𝐓𝐀𝐑]({image_url if image_url else '𝐍𝐎 𝐀𝐕𝐀𝐓𝐀𝐑'})\n𝐓𝐎𝐓𝐀𝐋 𝐌𝐄𝐒𝐒𝐀𝐆𝐄𝐒 𝐒𝐄𝐍𝐓: {message_count}\n𝐑𝐄𝐆𝐈𝐒𝐓𝐄𝐑𝐄𝐃: {registered_at}\n"
             for name, prefix, image_url, message_count, registered_at in characters[start:end]

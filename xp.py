@@ -24,8 +24,7 @@ def xp_for_next_level(level):
     return int(100 * (1.1 ** (level - 1)))
 
 def set_random_limit_break(current_level):
-    limit_break_level = random.randint(current_level + 1, current_level + 14)
-    return limit_break_level
+    return random.randint(current_level + 1, current_level + 14)
 
 def update_experience_and_level(character_name, user_id, xp_to_add):
     c.execute("SELECT experience, level, points, limit_break FROM characters WHERE name=? AND user_id=?", (character_name, user_id))
@@ -33,7 +32,7 @@ def update_experience_and_level(character_name, user_id, xp_to_add):
     if character:
         experience, level, points, limit_break = character
         if level == limit_break:
-            return experience, level, points, 0  
+            return experience, level, points, 0, True 
 
         new_experience = experience + xp_to_add
         next_level_xp = xp_for_next_level(level)
@@ -58,53 +57,55 @@ def update_experience_and_level(character_name, user_id, xp_to_add):
 
         c.execute("UPDATE characters SET experience=?, level=?, points=? WHERE name=? AND user_id=?", (new_experience, level, points, character_name, user_id))
         conn.commit()
-        return new_experience, level, points, levels_gained
-    return None, None, None, 0
-
-def set_level(character_name, user_id, level):
-    c.execute("SELECT level, points FROM characters WHERE name=? AND user_id=?", (character_name, user_id))
-    character = c.fetchone()
-    if character:
-        old_level, points = character
-        experience = 0  
-        new_points = (level - old_level) * 3 
-        points += new_points
-        if new_points < 0:
-            points = max(points, 0) 
-        c.execute("UPDATE characters SET experience=?, level=?, points=? WHERE name=? AND user_id=?", (experience, level, points, character_name, user_id))
-        conn.commit()
-
-        new_rank = None
-        for lvl, rank in sorted(rank_up_levels.items(), reverse=True):
-            if level >= lvl:
-                new_rank = rank
-                break
-
-        if new_rank:
-            update_rank_and_attributes(character_name, user_id, new_rank)
-
-        return experience, level, points
-    return None, None, None
+        return new_experience, level, points, levels_gained, False  
+    return None, None, None, 0, False
 
 def update_rank_and_attributes(character_name, user_id, new_rank):
     bonus = RANKS.get(new_rank, 0)
-    c.execute("SELECT rank, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia FROM characters WHERE name=? AND user_id=?", (character_name, user_id))
+    c.execute("SELECT rank FROM characters WHERE name=? AND user_id=?", (character_name, user_id))
+    current_rank = c.fetchone()[0]
+
+    adjusted_attributes = [bonus] * 6
+
+    c.execute('''UPDATE characters SET rank=?, forca=?, resistencia=?, agilidade=?, sentidos=?, vitalidade=?, inteligencia=?
+                 WHERE name=? AND user_id=?''',
+              (new_rank, *adjusted_attributes, character_name, user_id))
+    conn.commit()
+
+def set_level(character_name, user_id, new_level):
+    c.execute("SELECT level FROM characters WHERE name=? AND user_id=?", (character_name, user_id))
     character = c.fetchone()
     if character:
-        current_rank, *attributes = character
-        current_bonus = RANKS.get(current_rank, 0)
-        adjusted_attributes = [attr - current_bonus + bonus for attr in attributes]
+        old_level = character[0]
 
-        c.execute('''UPDATE characters SET rank=?, forca=?, resistencia=?, agilidade=?, sentidos=?, vitalidade=?, inteligencia=?
+        new_total_points = max((new_level - 1) * 3, 0)
+
+        new_rank = None
+        for lvl, rank in sorted(rank_up_levels.items(), reverse=True):
+            if new_level >= lvl:
+                new_rank = rank
+                break
+
+        new_rank_bonus = RANKS.get(new_rank, 0)
+        updated_attributes = [new_rank_bonus] * 6
+
+        c.execute('''UPDATE characters 
+                     SET experience=?, level=?, points=?, rank=?, forca=?, resistencia=?, agilidade=?, sentidos=?, vitalidade=?, inteligencia=?
                      WHERE name=? AND user_id=?''',
-                  (new_rank, *adjusted_attributes, character_name, user_id))
+                  (0, new_level, new_total_points, new_rank, 
+                   updated_attributes[0], updated_attributes[1], updated_attributes[2], 
+                   updated_attributes[3], updated_attributes[4], updated_attributes[5], 
+                   character_name, user_id))
         conn.commit()
+
+        return 0, new_level, new_total_points, new_rank
+    return None, None, None, None
 
 async def get_user_id_from_name(ctx, character_name):
     c.execute("SELECT user_id FROM characters WHERE name=?", (character_name,))
     user_ids = c.fetchall()
     if len(user_ids) > 1:
-        await ctx.send(f"- > **O personagem __'{character_name}'__ existe para múltiplos usuários. Por favor, mencione o usuário específico.**")
+        await ctx.send(embed=discord.Embed(description=f"- > **O personagem __'{character_name}'__ existe para múltiplos usuários. Por favor, mencione o usuário específico.**", color=discord.Color.red()))
         def check(m):
             return m.author == ctx.author and m.channel == ctx.channel
 
@@ -114,15 +115,15 @@ async def get_user_id_from_name(ctx, character_name):
             if mentioned_users:
                 return mentioned_users[0].id
             else:
-                await ctx.send("- > **Usuário não mencionado. Operação cancelada.**")
+                await ctx.send(embed=discord.Embed(description="- > **Usuário não mencionado. Operação cancelada.**", color=discord.Color.red()))
                 return None
         except asyncio.TimeoutError:
-            await ctx.send("- > **Tempo esgotado. Operação cancelada.**")
+            await ctx.send(embed=discord.Embed(description="- > **Tempo esgotado. Operação cancelada.**", color=discord.Color.red()))
             return None
     elif user_ids:
         return user_ids[0][0]
     else:
-        await ctx.send(f"- > **Personagem __'{character_name}'__ não encontrado.**")
+        await ctx.send(embed=discord.Embed(description=f"- > **Personagem __'{character_name}'__ não encontrado.**", color=discord.Color.red()))
         return None
 
 @commands.has_permissions(administrator=True)
@@ -130,23 +131,32 @@ async def get_user_id_from_name(ctx, character_name):
 async def xp(ctx, character_name: str, xp_amount: int):
     user_id = await get_user_id_from_name(ctx, character_name)
     if user_id:
-        experience, level, points, levels_gained = update_experience_and_level(character_name, user_id, xp_amount)
+        experience, level, points, levels_gained, at_limit_break = update_experience_and_level(character_name, user_id, xp_amount)
         if experience is not None:
-            await ctx.send(f'- > **🎉 __{character_name}__ recebeu __{xp_amount}__ XP e agora está no nível __{level}__ com __{experience}__ XP restante e __{points}__ pontos disponíveis.**')
+            if at_limit_break:
+                await ctx.send(embed=discord.Embed(description=f'- > **{character_name} atingiu o limitador de nível e não pode receber mais XP até quebrar o limitador.**', color=discord.Color.orange()))
+            else:
+                await ctx.send(embed=discord.Embed(description=f'- > **🎉 {character_name} recebeu __{xp_amount}__ XP e agora está no nível __{level}__ com __{experience}__ XP restante e __{points}__ pontos disponíveis.**', color=discord.Color.green()))
         else:
-            await ctx.send(f'- > **Personagem __"{character_name}"__ não encontrado.**')
-
+            await ctx.send(embed=discord.Embed(description=f'- > **Personagem __"{character_name}"__ não encontrado.**', color=discord.Color.red()))
+            
 @commands.has_permissions(administrator=True)
 @commands.command(name='setlevel')
 async def setlevel(ctx, character_name: str, level: int):
     user_id = await get_user_id_from_name(ctx, character_name)
     if user_id:
-        experience, level, points = set_level(character_name, user_id, level)
+        experience, new_level, points, new_rank = set_level(character_name, user_id, level)
         if experience is not None:
-            await ctx.send(f'- > **Nível de __{character_name}__ definido para __{level}__. Experiência zerada e __{points}__ pontos disponíveis.**')
+            await ctx.send(embed=discord.Embed(
+                description=f'- > **O nível de {character_name} foi ajustado para {new_level}. Experiência zerada e {points} pontos disponíveis. Novo rank: {new_rank}.**',
+                color=discord.Color.green()
+            ))
         else:
-            await ctx.send(f'- > **Personagem __"{character_name}"__ não encontrado.**')
-
+            await ctx.send(embed=discord.Embed(
+                description=f'- > **Personagem "{character_name}" não encontrado.**',
+                color=discord.Color.red()
+            ))
+            
 @commands.has_permissions(administrator=True)
 @commands.command(name='evolve')
 async def evolve(ctx, character_name: str):
@@ -160,38 +170,38 @@ async def evolve(ctx, character_name: str):
                 next_limit_break = set_random_limit_break(level)
                 c.execute("UPDATE characters SET limit_break=? WHERE name=? AND user_id=?", (next_limit_break, character_name, user_id)) 
                 conn.commit()
-                await ctx.send(f'- > **🎉 __{character_name}__ quebrou o limitador de nível e pode continuar evoluindo! Próximo limitador em __{next_limit_break}__**')
+                await ctx.send(embed=discord.Embed(description=f'- > **🎉 __{character_name}__ quebrou o limitador de nível e pode continuar evoluindo! Próximo limitador em __{next_limit_break}__.**', color=discord.Color.green()))
             elif level in rank_up_levels:
                 new_rank = rank_up_levels[level]
                 update_rank_and_attributes(character_name, user_id, new_rank)
                 next_limit_break = set_random_limit_break(level)
                 c.execute("UPDATE characters SET experience=?, limit_break=? WHERE name=? AND user_id=?", (0, next_limit_break, character_name, user_id)) 
                 conn.commit()
-                await ctx.send(f'- > **🎉 __{character_name}__ evoluiu para o rank __{new_rank}__! Próximo limitador em __{next_limit_break}__**')
+                await ctx.send(embed=discord.Embed(description=f'- > **🎉 __{character_name}__ evoluiu para o rank __{new_rank}__! Próximo limitador em __{next_limit_break}__.**', color=discord.Color.green()))
             else:
-                await ctx.send(f'- > **😡 __{character_name}__ não está no nível para evoluir ou quebrar um limitador!**')
+                await ctx.send(embed=discord.Embed(description=f'- > **😡 __{character_name}__ não está no nível para evoluir ou quebrar um limitador!**', color=discord.Color.red()))
         else:
-            await ctx.send(f'- > **😡 Personagem __"{character_name}"__ não encontrado.**')
+            await ctx.send(embed=discord.Embed(description=f'- > **😡 Personagem __"{character_name}"__ não encontrado.**', color=discord.Color.red()))
 
 @commands.command(name='points')
 async def points(ctx, character_name: str, attribute: str, points: int):
-    attributes = ["forca", "resistencia", "agilidade", "sentidos", "vitalidade", "inteligencia"]
-    if attribute.lower() not in attributes:
-        await ctx.send(f'- > **Atributo inválido. Os atributos válidos são: {", __".join(attributes)}__.**')
+    valid_attributes = ["forca", "resistencia", "agilidade", "sentidos", "vitalidade", "inteligencia"]
+    if attribute.lower() not in valid_attributes:
+        await ctx.send(embed=discord.Embed(description=f'- > **Atributo inválido. Os atributos válidos são: {", ".join(valid_attributes)}.**', color=discord.Color.red()))
         return
 
     c.execute("SELECT points, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (character_name, ctx.author.id))
     character = c.fetchone()
     if not character:
-        await ctx.send(f'- > **Personagem __"{character_name}"__ não encontrado ou você não tem permissão para distribuir pontos.**')
+        await ctx.send(embed=discord.Embed(description=f'- > **Personagem __"{character_name}"__ não encontrado ou você não tem permissão para distribuir pontos.**', color=discord.Color.red()))
         return
 
     current_points, *attrs = character
     if points > current_points:
-        await ctx.send(f'- > **Você não tem pontos suficientes. Pontos disponíveis: __{current_points}__.**')
+        await ctx.send(embed=discord.Embed(description=f'- > **Você não tem pontos suficientes. Pontos disponíveis: __{current_points}__.**', color=discord.Color.red()))
         return
 
-    updated_attributes = dict(zip(attributes, attrs))
+    updated_attributes = dict(zip(valid_attributes, attrs))
     updated_attributes[attribute.lower()] += points
     current_points -= points
 
@@ -200,8 +210,7 @@ async def points(ctx, character_name: str, attribute: str, points: int):
               (current_points, *updated_attributes.values(), character_name, ctx.author.id))
     conn.commit()
 
-    await ctx.send(f'- > **🎉 __{points}__ pontos distribuídos para __{attribute}__ de __{character_name}__. Pontos restantes: __{current_points}__.**')
-
+    await ctx.send(embed=discord.Embed(description=f'- > **🎉 __{points}__ pontos distribuídos para __{attribute}__ de __{character_name}__. Pontos restantes: __{current_points}__.**', color=discord.Color.green()))
 
 async def setup(bot):
     bot.add_command(xp)
