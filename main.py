@@ -2,10 +2,8 @@ import discord
 from discord.ext import commands
 from discord.ui import Button, View, Modal, TextInput
 import sqlite3
-import asyncio
 import aiohttp
 import math
-from discord import Webhook
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -46,6 +44,7 @@ def create_tables():
             description TEXT,
             image_url TEXT,
             user_id INTEGER,
+            message_id INTEGER,
             FOREIGN KEY(character_id) REFERENCES characters(character_id) ON DELETE CASCADE
         )''',
         '''CREATE TABLE IF NOT EXISTS techniques (
@@ -203,6 +202,10 @@ async def assist(ctx):
         **__𝐃𝐄𝐓𝐀𝐋𝐇𝐄𝐒 𝐃𝐎 𝐈𝐓𝐄𝐌__**
         `kill!itemdetails NomeDoPersonagem NomeDoItem`
         - > **Mostra os detalhes do item especificado no inventário do personagem.**
+
+        **__𝐀𝐓𝐔𝐀𝐋𝐈𝐙𝐀𝐑 𝐈𝐌𝐀𝐆𝐄𝐌 𝐃𝐎 𝐈𝐓𝐄𝐌__**
+        `kill!pfpitem 'Nome do Personagem' 'Nome do Item'`
+        - > **Atualiza ou adiciona uma imagem ao item especificado do personagem.**
         """, color=discord.Color.blue()),
 
         discord.Embed(title="``` 𝐀𝐉𝐔𝐃𝐀 - 𝐓𝐄𝐂𝐍𝐈𝐂𝐀𝐒 ```", description="""
@@ -608,6 +611,6 @@ bot.setup_hook = setup_hook
 import register
 register.register_commands(bot)
 
-bot.run('')
+bot.run('MTI2MTc2NTczMTEzODQwODYxMA.GSdysX.80VQSyAoOhZ2lgmv4O1CE3dnBLZZzA6VQgV_aM')
 
 conn.close()
