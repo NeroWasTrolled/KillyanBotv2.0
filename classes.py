@@ -1,15 +1,32 @@
 import sqlite3
 import discord
 from discord.ext import commands
+from logs import Logs
 from discord.ui import Modal, TextInput, Button, View
 import re
 
 conn = sqlite3.connect('characters.db')
 c = conn.cursor()
 
+def sanitize_input(input_str):
+    if not re.match("^[a-zA-Z0-9\s]*$", input_str):
+        return False
+    return True
+
 async def send_embed(ctx, title, description, color=discord.Color.blue()):
     embed = discord.Embed(title=title, description=description, color=color)
     await ctx.send(embed=embed)
+
+def parse_assign_args(args):
+    pattern = r'\'(.*?)\'|(\S+)'
+    matches = re.findall(pattern, args)
+    tokens = [match[0] if match[0] else match[1] for match in matches]
+
+    character_name = tokens[0] if len(tokens) > 0 else None
+    main_class = tokens[1] if len(tokens) > 1 else None
+    sub_class1 = tokens[2] if len(tokens) > 2 else None
+    sub_class2 = tokens[3] if len(tokens) > 3 else None
+    return character_name, main_class, sub_class1, sub_class2
 
 class ClassNameModal(Modal):
     def __init__(self):
@@ -91,9 +108,9 @@ class AttributesModal2(Modal):
             c.execute("INSERT INTO classes (class_name, forca, resistencia, vitalidade, agilidade, sentidos, inteligencia) VALUES (?, ?, ?, ?, ?, ?, ?)",
                       (self.class_name, self.forca, self.resistencia, self.vitalidade, agilidade, sentidos, inteligencia))
             conn.commit()
-            await interaction.response.send_message(f"- > **Classe** **__{self.class_name}__** **registrada com sucesso com os atributos especificados.**", ephemeral=True)
+            await interaction.response.send_message(f"- > **Classe __{self.class_name}__ registrada com sucesso com os atributos especificados.**", ephemeral=True)
         except sqlite3.IntegrityError:
-            await interaction.response.send_message(f"- > **A classe** **__{self.class_name}__** **já existe. Escolha outro nome.**", ephemeral=True)
+            await interaction.response.send_message(f"- > **A classe __{self.class_name}__ já existe. Escolha outro nome.**", ephemeral=True)
 
 class StartClassCreationButton(Button):
     def __init__(self):
@@ -147,7 +164,7 @@ async def removeclass(ctx, *, class_name: str):
         await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Classe não encontrada.**", discord.Color.red())
     else:
         conn.commit()
-        await send_embed(ctx, "𝐂𝐋𝐀𝐒𝐒𝐄 𝐑𝐄𝐌𝐎𝐕𝐈𝐃𝐀", f'- > **Classe** **__{class_name}__** **removida com sucesso.**', discord.Color.green())
+        await send_embed(ctx, "𝐂𝐋𝐀𝐒𝐒𝐄 𝐑𝐄𝐌𝐎𝐕𝐈𝐃𝐀", f'- > **Classe __{class_name}__ removida com sucesso.**', discord.Color.green())
 
 class ClassListView(View):
     def __init__(self, pages, current_page):
@@ -184,7 +201,7 @@ class PageButton(Button):
 async def classes(ctx):
     c.execute('''
         SELECT c.category_name, cl.class_name
-        FROM categories c
+        FROM category c
         LEFT JOIN class_category cc ON c.category_id = cc.category_id
         LEFT JOIN classes cl ON cc.class_id = cl.class_id
         ORDER BY c.category_name, cl.class_name
@@ -241,7 +258,7 @@ async def showclass(ctx, *, class_name: str):
     ''', (class_name,))
     class_info = c.fetchone()
     if not class_info:
-        await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **Classe** **__{class_name}__** **não encontrada.**", discord.Color.red())
+        await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **Classe __{class_name}__ não encontrada.**", discord.Color.red())
         return
 
     class_name, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia = class_info
@@ -264,16 +281,16 @@ async def showclass(ctx, *, class_name: str):
 @commands.command(name='category')
 async def category(ctx, *, category_name: str):
     try:
-        c.execute("INSERT INTO categories (category_name) VALUES (?)", (category_name,))
+        c.execute("INSERT INTO category (category_name) VALUES (?)", (category_name,))
         conn.commit()
-        await send_embed(ctx, "𝐂𝐀𝐓𝐄𝐆𝐎𝐑𝐈𝐀 𝐂𝐑𝐈𝐀𝐃𝐀", f'> **Categoria** **__{category_name}__** **criada com sucesso.**', discord.Color.green())
+        await send_embed(ctx, "𝐂𝐀𝐓𝐄𝐆𝐎𝐑𝐈𝐀 𝐂𝐑𝐈𝐀𝐃𝐀", f'> **Categoria __{category_name}__ criada com sucesso.**', discord.Color.green())
     except sqlite3.IntegrityError:
         await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Esta categoria já está registrada.**", discord.Color.red())
 
 @commands.has_permissions(administrator=True)
 @commands.command(name='removecategory')
 async def removecategory(ctx, *, category_name: str):
-    c.execute("SELECT category_id FROM categories WHERE category_name=?", (category_name,))
+    c.execute("SELECT category_id FROM category WHERE category_name=?", (category_name,))
     category = c.fetchone()
     if not category:
         await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Categoria não encontrada.**", discord.Color.red())
@@ -282,7 +299,7 @@ async def removecategory(ctx, *, category_name: str):
     c.execute("DELETE FROM class_category WHERE category_id=?", (category_id,))
     c.execute("DELETE FROM categories WHERE category_id=?", (category_id,))
     conn.commit()
-    await send_embed(ctx, "𝐂𝐀𝐓𝐄𝐆𝐎𝐑𝐈𝐀 𝐑𝐄𝐌𝐎𝐕𝐈𝐃𝐀", f'- > **Categoria** **__{category_name}__** **e suas vinculações foram removidas com sucesso.**', discord.Color.green())
+    await send_embed(ctx, "𝐂𝐀𝐓𝐄𝐆𝐎𝐑𝐈𝐀 𝐑𝐄𝐌𝐎𝐕𝐈𝐃𝐀", f'- > **Categoria __{category_name}__ e suas vinculações foram removidas com sucesso.**', discord.Color.green())
 
 @commands.has_permissions(administrator=True)
 @commands.command(name='vinculate')
@@ -298,7 +315,7 @@ async def vinculate(ctx, *, args: str):
         await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **Classe '{class_name}' não encontrada.**", discord.Color.red())
         return
     class_id = class_id[0]
-    c.execute("SELECT category_id FROM categories WHERE category_name=?", (category_name,))
+    c.execute("SELECT category_id FROM category WHERE category_name=?", (category_name,))
     category_id = c.fetchone()
     if not category_id:
         await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **Categoria '{category_name}' não encontrada.**", discord.Color.red())
@@ -307,7 +324,7 @@ async def vinculate(ctx, *, args: str):
     try:
         c.execute("INSERT INTO class_category (class_id, category_id) VALUES (?, ?)", (class_id, category_id))
         conn.commit()
-        await send_embed(ctx, "𝐂𝐋𝐀𝐒𝐒𝐄 𝐕𝐈𝐍𝐂𝐔𝐋𝐀𝐃𝐀", f'- > **Classe** **__`{class_name}`__** **vinculada à categoria** **__`{category_name}`__** **com sucesso.**', discord.Color.green())
+        await send_embed(ctx, "𝐂𝐋𝐀𝐒𝐒𝐄 𝐕𝐈𝐍𝐂𝐔𝐋𝐀𝐃𝐀", f'- > **Classe __`{class_name}`__ vinculada à categoria __`{category_name}`__ com sucesso.**', discord.Color.green())
     except sqlite3.IntegrityError:
         await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Esta classe já está vinculada a esta categoria.**", discord.Color.red())
 
@@ -318,13 +335,54 @@ async def assignclass(ctx, *, args: str):
         await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Formato inválido. Use: kill!assignclass 'Nome do Personagem' ClassePrincipal [SubClasse1] [SubClasse2]**", discord.Color.red())
         return
 
-    c.execute("SELECT character_id FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (character_name, ctx.author.id))
+    c.execute("SELECT character_id, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (character_name, ctx.author.id))
     character_row = c.fetchone()
     if not character_row:
         await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **Personagem '{character_name}' não encontrado ou você não tem permissão para atribuir classes.**", discord.Color.red())
         return
 
-    character_id = character_row[0]
+    character_id, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia = character_row
+
+    c.execute("SELECT main_class, sub_class1, sub_class2 FROM characters_classes WHERE character_id=?", (character_id,))
+    current_classes = c.fetchone()
+
+    if current_classes:
+        current_main_class, current_sub_class1, current_sub_class2 = current_classes
+
+        c.execute("SELECT forca, resistencia, agilidade, sentidos, vitalidade, inteligencia FROM classes WHERE class_name=?", (current_main_class,))
+        current_main_attrs = c.fetchone()
+
+        if current_main_attrs:
+            forca -= current_main_attrs[0]
+            resistencia -= current_main_attrs[1]
+            agilidade -= current_main_attrs[2]
+            sentidos -= current_main_attrs[3]
+            vitalidade -= current_main_attrs[4]
+            inteligencia -= current_main_attrs[5]
+
+        if current_sub_class1:
+            c.execute("SELECT forca, resistencia, agilidade, sentidos, vitalidade, inteligencia FROM classes WHERE class_name=?", (current_sub_class1,))
+            current_sub1_attrs = c.fetchone()
+
+            if current_sub1_attrs:
+                forca -= current_sub1_attrs[0] // 2
+                resistencia -= current_sub1_attrs[1] // 2
+                agilidade -= current_sub1_attrs[2] // 2
+                sentidos -= current_sub1_attrs[3] // 2
+                vitalidade -= current_sub1_attrs[4] // 2
+                inteligencia -= current_sub1_attrs[5] // 2
+
+        if current_sub_class2:
+            c.execute("SELECT forca, resistencia, agilidade, sentidos, vitalidade, inteligencia FROM classes WHERE class_name=?", (current_sub_class2,))
+            current_sub2_attrs = c.fetchone()
+
+            if current_sub2_attrs:
+                forca -= current_sub2_attrs[0] // 4
+                resistencia -= current_sub2_attrs[1] // 4
+                agilidade -= current_sub2_attrs[2] // 4
+                sentidos -= current_sub2_attrs[3] // 4
+                vitalidade -= current_sub2_attrs[4] // 4
+                inteligencia -= current_sub2_attrs[5] // 4
 
     c.execute("SELECT forca, resistencia, agilidade, sentidos, vitalidade, inteligencia FROM classes WHERE class_name=?", (main_class,))
     main_attrs = c.fetchone()
@@ -332,7 +390,12 @@ async def assignclass(ctx, *, args: str):
         await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **Classe principal '{main_class}' não encontrada.**", discord.Color.red())
         return
 
-    forca, resistencia, agilidade, sentidos, vitalidade, inteligencia = main_attrs
+    forca += main_attrs[0]
+    resistencia += main_attrs[1]
+    agilidade += main_attrs[2]
+    sentidos += main_attrs[3]
+    vitalidade += main_attrs[4]
+    inteligencia += main_attrs[5]
 
     if sub_class1:
         c.execute("SELECT forca, resistencia, agilidade, sentidos, vitalidade, inteligencia FROM classes WHERE class_name=?", (sub_class1,))
@@ -371,27 +434,8 @@ async def assignclass(ctx, *, args: str):
               (character_id, main_class, sub_class1, sub_class2, ctx.author.id))
     conn.commit()
 
-    c.execute("SELECT * FROM characters_classes WHERE character_id=?", (character_id,))
-    debug_classes = c.fetchone()
-    print(f"DEBUG: Assigned classes for {character_name}: {debug_classes}")
-
-    await send_embed(ctx, "𝐂𝐋𝐀𝐒𝐒𝐄 𝐀𝐓𝐑𝐈𝐁𝐔𝐈́𝐃𝐀", f'- > **Classe** **__{main_class}__** **e sub-classes atribuídas ao personagem** **__{character_name}__** **com sucesso.**', discord.Color.green())
-
-def parse_assign_args(args):
-    name_match = re.match(r"'(.+?)'", args)
-    if name_match:
-        character_name = name_match.group(1)
-        args = args[name_match.end():].strip()
-    else:
-        parts = args.split()
-        character_name = parts[0]
-        args = ' '.join(parts[1:])
-    classes = args.split()
-    main_class = classes[0] if len(classes) > 0 else None
-    sub_class1 = classes[1] if len(classes) > 1 else None
-    sub_class2 = classes[2] if len(classes) > 2 else None
-    return character_name, main_class, sub_class1, sub_class2
-
+    await send_embed(ctx, "𝐂𝐋𝐀𝐒𝐒𝐄 𝐀𝐓𝐑𝐈𝐁𝐔𝐈́𝐃𝐀", f'- > **Classe __{main_class}__ e sub-classes atribuídas ao personagem __{character_name}__ com sucesso.**', discord.Color.green())
+    
 async def setup(bot):
     bot.add_command(registerclass)
     bot.add_command(removeclass)
