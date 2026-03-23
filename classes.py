@@ -7,9 +7,10 @@ import re
 
 conn = sqlite3.connect('characters.db')
 c = conn.cursor()
+c.execute("PRAGMA foreign_keys = ON")
 
 def sanitize_input(input_str):
-    if not re.match("^[a-zA-Z0-9\s]*$", input_str):
+    if not re.match(r"^[a-zA-Z0-9\s]*$", input_str):
         return False
     return True
 
@@ -297,7 +298,7 @@ async def removecategory(ctx, *, category_name: str):
         return
     category_id = category[0]
     c.execute("DELETE FROM class_category WHERE category_id=?", (category_id,))
-    c.execute("DELETE FROM categories WHERE category_id=?", (category_id,))
+    c.execute("DELETE FROM category WHERE category_id=?", (category_id,))
     conn.commit()
     await send_embed(ctx, "𝐂𝐀𝐓𝐄𝐆𝐎𝐑𝐈𝐀 𝐑𝐄𝐌𝐎𝐕𝐈𝐃𝐀", f'- > **Categoria __{category_name}__ e suas vinculações foram removidas com sucesso.**', discord.Color.green())
 

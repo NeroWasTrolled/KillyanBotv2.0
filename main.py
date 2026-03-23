@@ -5,6 +5,7 @@ from discord.ui import Button, View, Modal, TextInput
 import sqlite3
 import aiohttp
 import math
+import os
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -13,6 +14,7 @@ bot = commands.Bot(command_prefix=['kill!', 'Kill!'], intents=intents)
 
 conn = sqlite3.connect('characters.db')
 c = conn.cursor()
+c.execute("PRAGMA foreign_keys = ON")
 
 def create_tables():
     queries = [
@@ -62,10 +64,12 @@ def create_tables():
             passive TEXT DEFAULT 'Nenhuma', -- Adicionando passiva padrão como 'Nenhuma'
             rank TEXT DEFAULT 'F-', -- Adicionando rank padrão como 'F-'
             message_id INTEGER DEFAULT NULL, -- Adicionando message_id para referência de mensagem
+            category_id INTEGER,
+            FOREIGN KEY(category_id) REFERENCES abilities(category_id) ON DELETE SET NULL,
             FOREIGN KEY(character_id) REFERENCES characters(character_id) ON DELETE CASCADE
         )''',
         
-        '''CREATE TABLE categories (
+        '''CREATE TABLE IF NOT EXISTS abilities (
         category_id INTEGER PRIMARY KEY AUTOINCREMENT,
         character_id INTEGER NOT NULL,
         category_name TEXT NOT NULL,
@@ -93,7 +97,7 @@ def create_tables():
             class_id INTEGER, 
             category_id INTEGER, 
             FOREIGN KEY(class_id) REFERENCES classes(class_id) ON DELETE CASCADE, 
-            FOREIGN KEY(category_id) REFERENCES categories(category_id) ON DELETE CASCADE, 
+            FOREIGN KEY(category_id) REFERENCES category(category_id) ON DELETE CASCADE, 
             UNIQUE(class_id, category_id)
         )''',
 
@@ -132,11 +136,11 @@ def create_tables():
         '''ALTER TABLE techniques ADD COLUMN rank TEXT DEFAULT 'F-' ''',
         '''ALTER TABLE techniques ADD COLUMN message_id INTEGER DEFAULT NULL''',
         '''ALTER TABLE techniques ADD COLUMN category_id INTEGER''',
-        '''ALTER TABLE techniques ADD FOREIGN KEY (category_id) REFERENCES categories(category_id) ON DELETE CASCADE''',
 
-        '''ALTER TABLE categories ADD COLUMN description TEXT''',
-        '''ALTER TABLE categories ADD COLUMN character_id INTEGER''',
-        '''ALTER TABLE categories ADD FOREIGN KEY (character_id) REFERENCES characters(character_id) ON DELETE CASCADE'''
+        '''ALTER TABLE inventory ADD COLUMN message_id INTEGER DEFAULT NULL''',
+
+        '''ALTER TABLE abilities ADD COLUMN description TEXT''',
+        '''ALTER TABLE abilities ADD COLUMN character_id INTEGER'''
     ]
 
     for query in queries:
@@ -153,7 +157,32 @@ def create_tables():
         except sqlite3.Error as e:
             print(f"Erro ao alterar tabela: {e}")
 
+    migrate_abilities_schema()
+
     conn.commit()
+
+
+def migrate_abilities_schema():
+    # Migra a tabela antiga categories para abilities sem perder dados.
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='categories'")
+    has_categories = c.fetchone() is not None
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='abilities'")
+    has_abilities = c.fetchone() is not None
+
+    if has_categories and not has_abilities:
+        c.execute("ALTER TABLE categories RENAME TO abilities")
+        return
+
+    if has_categories and has_abilities:
+        c.execute("""
+            INSERT INTO abilities (category_id, character_id, category_name, description)
+            SELECT c.category_id, c.character_id, c.category_name, c.description
+            FROM categories c
+            WHERE NOT EXISTS (
+                SELECT 1 FROM abilities a WHERE a.category_id = c.category_id
+            )
+        """)
+        c.execute("DROP TABLE categories")
 
 create_tables()
 
@@ -206,22 +235,30 @@ async def assist(ctx):
         - > **Exibe o ranking dos 10 personagens com maior nível.**
         """, color=discord.Color.blue()),
 
-        discord.Embed(title="``` 𝐀𝐉𝐔𝐃𝐀 - 𝐂𝐀𝐓𝐄𝐆𝐎𝐑𝐈𝐀𝐒 ```", description="""
-        **__𝐂𝐑𝐈𝐀𝐑 𝐂𝐀𝐓𝐄𝐆𝐎𝐑𝐈𝐀__**
-        `kill!createcategory 'Nome do Personagem' 'Nome da Categoria'`
-        - > **Cria uma nova categoria para o personagem especificado.**
+        discord.Embed(title="``` 𝐀𝐉𝐔𝐃𝐀 - 𝐇𝐀𝐁𝐈𝐋𝐈𝐃𝐀𝐃𝐄𝐒 ```", description="""
+        **__𝐂𝐑𝐈𝐀𝐑 𝐇𝐀𝐁𝐈𝐋𝐈𝐃𝐀𝐃𝐄__**
+        `kill!createability 'Nome do Personagem' 'Nome da Habilidade'`
+        - > **Cria uma nova habilidade para o personagem especificado.**
 
-        **__𝐑𝐄𝐌𝐎𝐕𝐄𝐑 𝐂𝐀𝐓𝐄𝐆𝐎𝐑𝐈𝐀__**
-        `kill!removecategory 'Nome do Personagem' 'Nome da Categoria'`
-        - > **Remove a categoria do personagem especificado.**
+        **__𝐑𝐄𝐌𝐎𝐕𝐄𝐑 𝐇𝐀𝐁𝐈𝐋𝐈𝐃𝐀𝐃𝐄__**
+        `kill!delability 'Nome do Personagem' 'Nome da Habilidade'`
+        - > **Remove a habilidade do personagem especificado.**
 
-        **__𝐋𝐈𝐒𝐓𝐀𝐑 𝐂𝐀𝐓𝐄𝐆𝐎𝐑𝐈𝐀𝐒__**
-        `kill!listcategories 'Nome do Personagem'`
-        - > **Lista todas as categorias associadas ao personagem especificado.**
+        **__𝐋𝐈𝐒𝐓𝐀𝐑 𝐇𝐀𝐁𝐈𝐋𝐈𝐃𝐀𝐃𝐄𝐒__**
+        `kill!listabilities 'Nome do Personagem'`
+        - > **Lista todas as habilidades associadas ao personagem especificado.**
 
-        **__𝐕𝐈𝐍𝐂𝐔𝐋𝐀𝐑 𝐓𝐄𝐂𝐍𝐈𝐂𝐀 𝐀 𝐔𝐌𝐀 𝐂𝐀𝐓𝐄𝐆𝐎𝐑𝐈𝐀__**
-        `kill!assigntechnique 'Nome do Personagem' 'Nome da Técnica' 'Nome da Categoria'`
-        - > **Vincula uma técnica do personagem a uma categoria.**
+        **__𝐃𝐄𝐓𝐀𝐋𝐇𝐄𝐒 𝐃𝐀 𝐇𝐀𝐁𝐈𝐋𝐈𝐃𝐀𝐃𝐄__**
+        `kill!abilitydetails 'Nome do Personagem' 'Nome da Habilidade'`
+        - > **Mostra os detalhes da habilidade e técnicas vinculadas.**
+
+        **__𝐕𝐈𝐍𝐂𝐔𝐋𝐀𝐑 𝐓𝐄𝐂𝐍𝐈𝐂𝐀 𝐀 𝐔𝐌𝐀 𝐇𝐀𝐁𝐈𝐋𝐈𝐃𝐀𝐃𝐄__**
+        `kill!assignability 'Nome do Personagem' 'Nome da Técnica' 'Nome da Habilidade'`
+        - > **Vincula uma técnica do personagem a uma habilidade.**
+
+        **__𝐂𝐎𝐌𝐏𝐀𝐓𝐈𝐁𝐈𝐋𝐈𝐃𝐀𝐃𝐄__**
+        `kill!createcategory`, `kill!delcategory`, `kill!listcategories`, `kill!categorydetails`, `kill!assigntechnique`
+        - > **Os comandos antigos continuam funcionando como alias.**
         """, color=discord.Color.blue()),
 
         discord.Embed(title="𝐀𝐉𝐔𝐃𝐀 - 𝐗𝐏 𝐄 𝐍𝐈́𝐕𝐄𝐈𝐒", description="""
@@ -324,6 +361,14 @@ async def assist(ctx):
         **__𝐃𝐄𝐅𝐈𝐍𝐈𝐑 𝐏𝐀𝐒𝐒𝐈𝐕𝐀__**
         `kill!setpassive NomeDoPersonagem NomeDaTecnica Passiva`
         - > **Define a passiva de uma técnica específica (somente para administradores).**
+
+        **__𝐀𝐓𝐈𝐕𝐀𝐑 𝐋𝐄𝐈𝐓𝐔𝐑𝐀 𝐃𝐄 𝐖𝐄𝐁𝐇𝐎𝐎𝐊𝐒__**
+        `kill!activate`
+        - > **Ativa ou desativa a leitura de webhooks para progressão automática de técnicas.**
+
+        **__𝐂𝐀𝐑𝐃 𝐃𝐀 𝐇𝐀𝐁𝐈𝐋𝐈𝐃𝐀𝐃𝐄 (image.png)__**
+        `kill!showability NomeDoPersonagem NomeDaTecnica`
+        - > **Gera a imagem da técnica usando o template `image.png`.**
         """, color=discord.Color.blue()),
 
         discord.Embed(title="``` 𝐀𝐉𝐔𝐃𝐀 - 𝐋𝐀𝐘𝐎𝐔𝐓 𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐋𝐈𝐙𝐀𝐃𝐎 ```", description="""
@@ -539,6 +584,25 @@ bot.setup_hook = setup_hook
 import register
 register.register_commands(bot)
 
-bot.run('')
+def load_bot_token():
+    token = os.getenv('DISCORD_TOKEN')
+    if token:
+        return token
+
+    env_file = '.env'
+    if os.path.exists(env_file):
+        with open(env_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                key, value = line.split('=', 1)
+                if key.strip() == 'DISCORD_TOKEN':
+                    return value.strip().strip('"').strip("'")
+
+    raise RuntimeError('Token nao encontrado. Defina DISCORD_TOKEN no ambiente ou no arquivo .env')
+
+
+bot.run(load_bot_token())
 
 conn.close()

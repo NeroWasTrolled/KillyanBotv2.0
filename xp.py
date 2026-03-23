@@ -8,9 +8,10 @@ from discord.ext import commands
 
 conn = sqlite3.connect('characters.db')
 c = conn.cursor()
+c.execute("PRAGMA foreign_keys = ON")
 
 def sanitize_input(input_str):
-    if not re.match("^[a-zA-Z0-9\s]*$", input_str):
+    if not re.match(r"^[a-zA-Z0-9\s]*$", input_str):
         return False
     return True
 

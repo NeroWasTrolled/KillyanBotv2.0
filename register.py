@@ -10,6 +10,7 @@ from xp import xp_for_next_level
 
 conn = sqlite3.connect('characters.db', check_same_thread=False)
 c = conn.cursor()
+c.execute("PRAGMA foreign_keys = ON")
 
 def apply_layout(user_id, title, description):
     c.execute("SELECT title_layout, description_layout FROM layout_settings WHERE user_id=?", (user_id,))

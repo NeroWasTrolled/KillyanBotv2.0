@@ -7,9 +7,10 @@ import re
 
 conn = sqlite3.connect('characters.db')
 c = conn.cursor()
+c.execute("PRAGMA foreign_keys = ON")
 
 def sanitize_input(input_str):
-    if not re.match("^[a-zA-Z0-9\s]*$", input_str):
+    if not re.match(r"^[a-zA-Z0-9\s]*$", input_str):
         return False
     return True
 
@@ -501,7 +502,8 @@ class Techniques(commands.Cog):
     @commands.Cog.listener()
     async def on_message_edit(self, before, after):
         """Listener para processar mensagens editadas"""
-        await self.process_webhook(after)
+        if self.active and after.webhook_id:
+            await self.process_webhook(after)
 
 async def setup(bot):
     await bot.add_cog(Techniques(bot))

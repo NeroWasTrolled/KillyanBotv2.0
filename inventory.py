@@ -7,9 +7,10 @@ import re
 
 conn = sqlite3.connect('characters.db')
 c = conn.cursor()
+c.execute("PRAGMA foreign_keys = ON")
 
 def sanitize_input(input_str):
-    if not re.match("^[a-zA-Z0-9\s]*$", input_str):
+    if not re.match(r"^[a-zA-Z0-9\s]*$", input_str):
         return False
     return True
 
@@ -157,8 +158,13 @@ class Inventory(commands.Cog):
             return
 
         item_list = "\n".join([f"- {item[0]}: {item[1]}" for item in items])
-        c.execute("SELECT rank FROM characters WHERE name COLLATE NOCASE=?", (character_name,))
-        rank = c.fetchone()[0]
+        c.execute("SELECT rank FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (character_name, ctx.author.id))
+        character_rank = c.fetchone()
+        if not character_rank:
+            await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **Personagem {character_name} não encontrado.**", discord.Color.red())
+            return
+
+        rank = character_rank[0]
         capacity = get_inventory_capacity(rank)
 
         formatted_name = to_bold_sans_serif(character_name)

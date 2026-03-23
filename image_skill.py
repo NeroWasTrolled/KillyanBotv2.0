@@ -8,6 +8,7 @@ import aiohttp
 
 conn = sqlite3.connect('characters.db')
 c = conn.cursor()
+c.execute("PRAGMA foreign_keys = ON")
 
 def clean_discord_formatting(text):
     return re.sub(r'[*_>~-]', '', text)
