@@ -150,7 +150,7 @@ class CancelButton(Button):
         await interaction.message.delete()
 
 @commands.has_permissions(administrator=True)
-@commands.command(name='registerclass')
+@commands.command(name='registerclass', aliases=['newclass', 'addclass'])
 async def registerclass(ctx):
     view = View()
     view.add_item(StartClassCreationButton())
@@ -158,7 +158,7 @@ async def registerclass(ctx):
     await ctx.send("- > **Clique no botão abaixo para iniciar a criação da classe ou cancelar.**", view=view)
 
 @commands.has_permissions(administrator=True)
-@commands.command(name='removeclass')
+@commands.command(name='removeclass', aliases=['delclass'])
 async def removeclass(ctx, *, class_name: str):
     c.execute("DELETE FROM classes WHERE class_name=?", (class_name,))
     if c.rowcount == 0:
@@ -198,7 +198,7 @@ class PageButton(Button):
     def __init__(self, view):
         super().__init__(style=discord.ButtonStyle.primary, label="...")
 
-@commands.command(name='classes')
+@commands.command(name='classes', aliases=['listclass'])
 async def classes(ctx):
     c.execute('''
         SELECT c.category_name, cl.class_name
@@ -250,7 +250,7 @@ async def classes(ctx):
     view = ClassListView(pages, page)
     await ctx.send(embed=pages[page], view=view)
 
-@commands.command(name='showclass')
+@commands.command(name='showclass', aliases=['classinfo'])
 async def showclass(ctx, *, class_name: str):
     c.execute('''
         SELECT class_name, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia
@@ -279,7 +279,7 @@ async def showclass(ctx, *, class_name: str):
     await ctx.send(embed=embed)
 
 @commands.has_permissions(administrator=True)
-@commands.command(name='category')
+@commands.command(name='category', aliases=['classcategory'])
 async def category(ctx, *, category_name: str):
     try:
         c.execute("INSERT INTO category (category_name) VALUES (?)", (category_name,))
@@ -289,7 +289,7 @@ async def category(ctx, *, category_name: str):
         await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Esta categoria já está registrada.**", discord.Color.red())
 
 @commands.has_permissions(administrator=True)
-@commands.command(name='removecategory')
+@commands.command(name='removecategory', aliases=['delclasscategory'])
 async def removecategory(ctx, *, category_name: str):
     c.execute("SELECT category_id FROM category WHERE category_name=?", (category_name,))
     category = c.fetchone()
@@ -303,7 +303,7 @@ async def removecategory(ctx, *, category_name: str):
     await send_embed(ctx, "𝐂𝐀𝐓𝐄𝐆𝐎𝐑𝐈𝐀 𝐑𝐄𝐌𝐎𝐕𝐈𝐃𝐀", f'- > **Categoria __{category_name}__ e suas vinculações foram removidas com sucesso.**', discord.Color.green())
 
 @commands.has_permissions(administrator=True)
-@commands.command(name='vinculate')
+@commands.command(name='vinculate', aliases=['linkclass'])
 async def vinculate(ctx, *, args: str):
     match = re.match(r"'(.+?)'\s*'(.+?)'", args)
     if not match:
@@ -329,7 +329,7 @@ async def vinculate(ctx, *, args: str):
     except sqlite3.IntegrityError:
         await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Esta classe já está vinculada a esta categoria.**", discord.Color.red())
 
-@commands.command(name='assignclass')
+@commands.command(name='assignclass', aliases=['setclass'])
 async def assignclass(ctx, *, args: str):
     character_name, main_class, sub_class1, sub_class2 = parse_assign_args(args)
     if not character_name or not main_class:

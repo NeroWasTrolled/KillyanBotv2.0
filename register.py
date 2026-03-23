@@ -49,14 +49,27 @@ def parse_registration_args(args):
     name = tokens[0] if len(tokens) > 0 else None
     return name
 
-async def send_embed(ctx, title, description, color=discord.Color.blue(), image_url=None):
+
+def get_inventory_capacity(rank):
+    rank_capacities = {
+        'F-': 4, 'F': 8, 'F+': 12, 'E-': 16, 'E': 20, 'E+': 24,
+        'D-': 28, 'D': 32, 'D+': 36, 'C-': 40, 'C': 44, 'C+': 48,
+        'B-': 52, 'B': 56, 'B+': 60, 'A-': 64, 'A': 68, 'A+': 72,
+        'S': 76, 'S+': 80, 'SS': 84, 'SS+': 88, 'SSS': 92, 'SSS+': 96,
+        'Z': 100
+    }
+    return rank_capacities.get(rank, 4)
+
+async def send_embed(ctx, title, description, color=discord.Color.blue(), image_url=None, next_step=None):
+    if next_step:
+        description = f"{description}\n\n- > **Próximo passo:** {next_step}"
     embed = discord.Embed(title=title, description=description, color=color)
     if image_url:
         embed.set_image(url=image_url)
     await ctx.send(embed=embed)
 
 def register_commands(bot):
-    @bot.command(name='register')
+    @bot.command(name='register', aliases=['reg', 'novo'])
     async def register(ctx, *, args: str):
         name = parse_registration_args(args)
         if not name:
@@ -79,18 +92,19 @@ def register_commands(bot):
         conn.commit()
         await send_embed(ctx, "**__```𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌 𝐑𝐄𝐆𝐈𝐒𝐓𝐑𝐀𝐃𝐎!!!```__**",
                          f'- > **Personagem __{name}__ registrado com sucesso!**',
-                         discord.Color.green(), image_url)
+                         discord.Color.green(), image_url,
+                         "use `kill!details NomeDoPersonagem` para ver o perfil")
 
-    @bot.command(name='remove')
+    @bot.command(name='remove', aliases=['rm'])
     async def remove(ctx, *, name: str):
         c.execute("DELETE FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (name, ctx.author.id))
         if c.rowcount == 0:
             await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Personagem não encontrado ou você não tem permissão para removê-lo.**", discord.Color.red())
         else:
             conn.commit()
-            await send_embed(ctx, "**__```𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌 𝐑𝐄𝐌𝐎𝐕𝐈𝐃𝐎```__**", f'- > **Personagem __{name}__ removido com sucesso.**', discord.Color.green())
+            await send_embed(ctx, "**__```𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌 𝐑𝐄𝐌𝐎𝐕𝐈𝐃𝐎```__**", f'- > **Personagem __{name}__ removido com sucesso.**', discord.Color.green(), next_step="use `kill!register 'Nome'` para criar outro")
 
-    @bot.command(name='details')
+    @bot.command(name='details', aliases=['det', 'perfil'])
     async def details(ctx, *, name: str):
         c.execute("SELECT character_id, name, image_url, experience, level, points, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia, rank, message_count, registered_at FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (name, ctx.author.id))
         character = c.fetchone()
@@ -285,7 +299,7 @@ def register_commands(bot):
 
         await ctx.send(embed=embed, view=view)
 
-    @bot.command(name='avatar')
+    @bot.command(name='avatar', aliases=['av'])
     async def avatar(ctx, *, name: str):
         c.execute("SELECT image_url, message_id FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (name, ctx.author.id))
         character = c.fetchone()
@@ -297,7 +311,7 @@ def register_commands(bot):
                 message_id = ctx.message.id
                 c.execute("UPDATE characters SET image_url=?, message_id=? WHERE name COLLATE NOCASE=? AND user_id=?", (image_url, message_id, name, ctx.author.id))
                 conn.commit()
-                await send_embed(ctx, "**__```𝐀𝐕𝐀𝐓𝐀𝐑 𝐀𝐓𝐔𝐀𝐋𝐈𝐙𝐀𝐃𝐎!!!```__**", f"- > **Avatar do personagem __{name}__ atualizado com sucesso.**", discord.Color.green(), image_url)
+                await send_embed(ctx, "**__```𝐀𝐕𝐀𝐓𝐀𝐑 𝐀𝐓𝐔𝐀𝐋𝐈𝐙𝐀𝐃𝐎!!!```__**", f"- > **Avatar do personagem __{name}__ atualizado com sucesso.**", discord.Color.green(), image_url, "use `kill!details NomeDoPersonagem` para revisar")
             else:
                 image_url, message_id = character
                 if image_url:
@@ -312,7 +326,7 @@ def register_commands(bot):
                 else:
                     await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **Nenhum avatar definido para o personagem {name}. Para definir um avatar, forneça um link direto para a imagem ou faça o upload como um anexo ao executar este comando.**", discord.Color.red())
 
-    @bot.command(name='rename')
+    @bot.command(name='rename', aliases=['ren'])
     async def rename(ctx, *, args: str):
         match = re.match(r"'(.+?)'\s*'(.+?)'", args)
         if not match:
@@ -352,10 +366,11 @@ def register_commands(bot):
                 ctx,
                 "**__```𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌 𝐑𝐄𝐍𝐎𝐌𝐄𝐀𝐃𝐎```__**",
                 f'- > **Personagem __{old_name}__ renomeado para __{new_name}__ com sucesso.**',
-                discord.Color.green()
+                discord.Color.green(),
+                next_step="use `kill!details NovoNome` para validar"
             )
 
-    @bot.command(name='list')
+    @bot.command(name='list', aliases=['chars', 'meus'])
     async def list_characters(ctx, member: discord.Member = None):
         user_id = member.id if member else ctx.author.id
         display_name = member.display_name if member else ctx.author.display_name
@@ -440,3 +455,42 @@ def register_commands(bot):
                     await interaction.response.send_message(f"Invalid page number. Please enter a number between 1 and {self.total_pages}.", ephemeral=True)
             except ValueError:
                 await interaction.response.send_message("Invalid page number. Please enter a valid integer.", ephemeral=True)
+
+    @bot.command(name='pendencias', aliases=['todo', 'check'])
+    async def pendencias(ctx, *, name: str = None):
+        if name:
+            c.execute("SELECT character_id, name, points, level, limit_break, rank FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (name, ctx.author.id))
+        else:
+            c.execute("SELECT character_id, name, points, level, limit_break, rank FROM characters WHERE user_id=? ORDER BY level DESC LIMIT 1", (ctx.author.id,))
+
+        character = c.fetchone()
+        if not character:
+            await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Nenhum personagem encontrado para verificar pendências.**", discord.Color.red())
+            return
+
+        character_id, char_name, points, level, limit_break, rank = character
+        pendencias_lista = []
+
+        if points > 0:
+            pendencias_lista.append(f"- Você tem **{points}** pontos para distribuir. (`kill!points {char_name} forca 1`)")
+
+        c.execute("SELECT COUNT(*) FROM techniques WHERE character_id=? AND (category_id IS NULL)", (character_id,))
+        sem_habilidade = c.fetchone()[0]
+        if sem_habilidade > 0:
+            pendencias_lista.append(f"- Você tem **{sem_habilidade}** técnica(s) sem habilidade. (`kill!assignability '{char_name}' 'Tecnica' 'Habilidade'`)")
+
+        c.execute("SELECT COUNT(*) FROM inventory WHERE character_name COLLATE NOCASE=? AND user_id=?", (char_name, ctx.author.id))
+        itens = c.fetchone()[0]
+        cap = get_inventory_capacity(rank)
+        if cap - itens <= 2:
+            pendencias_lista.append(f"- Inventário quase cheio: **{itens}/{cap}**.")
+
+        if level >= limit_break:
+            pendencias_lista.append(f"- Você atingiu o limitador de nível (**{limit_break}**).")
+
+        if not pendencias_lista:
+            await send_embed(ctx, "**__```𝐒𝐄𝐌 𝐏𝐄𝐍𝐃𝐄̂𝐍𝐂𝐈𝐀𝐒```__**", f"- > **{char_name} está em dia.**", discord.Color.green(), next_step="continue o RP normalmente")
+            return
+
+        texto = "\n".join(pendencias_lista)
+        await send_embed(ctx, "**__```𝐏𝐄𝐍𝐃𝐄̂𝐍𝐂𝐈𝐀𝐒 𝐃𝐎 𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌```__**", f"- > **{char_name}**\n\n{texto}", discord.Color.orange(), next_step="use `kill!menu` para atalhos rápidos")

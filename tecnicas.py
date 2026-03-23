@@ -86,7 +86,9 @@ class Techniques(commands.Cog):
         self.bot = bot
         self.active = False
 
-    async def send_embed(self, ctx, title, description, color=discord.Color.blue(), image_url=None):
+    async def send_embed(self, ctx, title, description, color=discord.Color.blue(), image_url=None, next_step=None):
+        if next_step:
+            description = f"{description}\n\n- > **Próximo passo:** {next_step}"
         embed = discord.Embed(title=title, description=description, color=color)
         if image_url:
             embed.set_image(url=image_url)
@@ -281,7 +283,7 @@ class Techniques(commands.Cog):
 
         return None
 
-    @commands.command(name='activate')
+    @commands.command(name='activate', aliases=['webhook'])
     async def activate(self, ctx):
         """Ativa ou desativa o modo de leitura de webhooks"""
         self.active = not self.active
@@ -293,7 +295,7 @@ class Techniques(commands.Cog):
         parts = re.findall(r"'(.*?)'|(\S+)", args)
         return [''.join(filter(None, part)) for part in parts]
 
-    @commands.command(name='addtechnique')
+    @commands.command(name='addtechnique', aliases=['addtech', 'novatecnica'])
     async def add_technique(self, ctx, *, args: str):
         """Comando para adicionar uma técnica a um personagem"""
         parsed_args = self.parse_args(args)
@@ -325,11 +327,18 @@ class Techniques(commands.Cog):
             c.execute("INSERT INTO techniques (character_id, technique_name, user_id, image_url, description, passive) VALUES (?, ?, ?, ?, ?, ?)",
                   (character_id, technique_name, ctx.author.id, image_url, description, passive))
             conn.commit()
-            await self.send_embed(ctx, "**__```𝐓𝐄́𝐂𝐍𝐈𝐂𝐀 𝐀𝐃𝐈𝐂𝐈𝐎𝐍𝐀𝐃𝐀```__**", f"- > **Técnica __`{technique_name}`__ adicionada ao personagem __`{character_name}`__.**", discord.Color.green(), image_url)
+            await self.send_embed(
+                ctx,
+                "**__```𝐓𝐄́𝐂𝐍𝐈𝐂𝐀 𝐀𝐃𝐈𝐂𝐈𝐎𝐍𝐀𝐃𝐀```__**",
+                f"- > **Técnica __`{technique_name}`__ adicionada ao personagem __`{character_name}`__.**",
+                discord.Color.green(),
+                image_url,
+                "use `kill!assignability` para vincular em uma habilidade"
+            )
         except asyncio.TimeoutError:
             await self.send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Tempo esgotado. Por favor, tente novamente.**", discord.Color.red())
 
-    @commands.command(name='removetechnique')
+    @commands.command(name='removetechnique', aliases=['deltech'])
     async def remove_technique(self, ctx, *, args: str):
         """Comando para remover uma técnica de um personagem"""
         parsed_args = self.parse_args(args)
@@ -351,9 +360,9 @@ class Techniques(commands.Cog):
             await self.send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Técnica não encontrada ou você não tem permissão para removê-la.**", discord.Color.red())
         else:
             conn.commit()
-            await self.send_embed(ctx, "**__```𝐓𝐄́𝐂𝐍𝐈𝐂𝐀 𝐑𝐄𝐌𝐎𝐕𝐈𝐃𝐀```__**", f"- > **Técnica __`{technique_name}`__ removida do personagem __`{character_name}`__.**", discord.Color.green())
+            await self.send_embed(ctx, "**__```𝐓𝐄́𝐂𝐍𝐈𝐂𝐀 𝐑𝐄𝐌𝐎𝐕𝐈𝐃𝐀```__**", f"- > **Técnica __`{technique_name}`__ removida do personagem __`{character_name}`__.**", discord.Color.green(), next_step="use `kill!showtechnique` para conferir outras técnicas")
 
-    @commands.command(name='showtechnique')
+    @commands.command(name='showtechnique', aliases=['tech'])
     async def show_technique(self, ctx, *, args: str):
         """Comando para exibir informações de uma técnica"""
         parsed_args = self.parse_args(args)
@@ -393,7 +402,7 @@ class Techniques(commands.Cog):
         await self.send_embed(ctx, formatted_title, formatted_description, discord.Color.blue(), image_url)
 
     
-    @commands.command(name='settechniquelevel')
+    @commands.command(name='settechniquelevel', aliases=['settechlvl'])
     async def set_technique_level(self, ctx, *, args: str):
         """Define o nível de mastery de uma técnica"""
         parsed_args = self.parse_args(args)
@@ -464,7 +473,7 @@ class Techniques(commands.Cog):
 
         await self.send_embed(ctx, "**__```𝐏𝐀𝐒𝐒𝐈𝐕𝐀 𝐀𝐓𝐔𝐀𝐋𝐈𝐙𝐀𝐃𝐀```__**", f"- > **A passiva da técnica __`{technique_name}`__ foi atualizada para __`{passive_name}`__**", discord.Color.green())
 
-    @commands.command(name='pfptechnique')
+    @commands.command(name='pfptechnique', aliases=['techimg'])
     async def pfptechnique(self, ctx, *, args: str):
         args = self.parse_args(args)
         if len(args) < 2:

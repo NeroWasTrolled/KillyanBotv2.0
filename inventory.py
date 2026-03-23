@@ -52,7 +52,9 @@ def get_inventory_capacity(rank):
     }
     return rank_capacities.get(rank, 4)
 
-async def send_embed(ctx, title, description, color=discord.Color.blue(), image_url=None):
+async def send_embed(ctx, title, description, color=discord.Color.blue(), image_url=None, next_step=None):
+    if next_step:
+        description = f"{description}\n\n- > **Próximo passo:** {next_step}"
     embed = discord.Embed(title=title, description=description, color=color)
     if image_url:
         embed.set_image(url=image_url)
@@ -72,7 +74,7 @@ class Inventory(commands.Cog):
             return False, "- > **Nome de personagem e item são obrigatórios.**"
         return True, None
 
-    @commands.command(name='additem')
+    @commands.command(name='additem', aliases=['addi', 'itemadd'])
     async def additem(self, ctx, *, args: str):
         args = parse_command_args(args)
         if len(args) < 2:
@@ -114,11 +116,18 @@ class Inventory(commands.Cog):
                       (character_name, item_name, description, image_url, ctx.author.id))
             conn.commit()
 
-            await send_embed(ctx, "**__```𝐈𝐓𝐄𝐌 𝐀𝐃𝐈𝐂𝐈𝐎𝐍𝐀𝐃𝐎```__**", f"- > **Item {item_name} foi adicionado ao inventário de {character_name}.**", discord.Color.green(), image_url)
+            await send_embed(
+                ctx,
+                "**__```𝐈𝐓𝐄𝐌 𝐀𝐃𝐈𝐂𝐈𝐎𝐍𝐀𝐃𝐎```__**",
+                f"- > **Item {item_name} foi adicionado ao inventário de {character_name}.**",
+                discord.Color.green(),
+                image_url,
+                "use `kill!inv NomeDoPersonagem` para revisar"
+            )
         except asyncio.TimeoutError:
             await send_embed(ctx, "**__```𝐓𝐄𝐌𝐏𝐎 𝐄𝐒𝐆𝐎𝐓𝐀𝐃𝐎```__**", "- > **Tente novamente.**", discord.Color.red())
 
-    @commands.command(name='delitem')
+    @commands.command(name='delitem', aliases=['deli', 'itemdel'])
     async def delitem(self, ctx, *, args: str):
         args = parse_command_args(args)
         if len(args) < 2:
@@ -140,9 +149,9 @@ class Inventory(commands.Cog):
         c.execute("DELETE FROM inventory WHERE id=?", (item[0],))
         conn.commit()
 
-        await send_embed(ctx, "**__```𝐈𝐓𝐄𝐌 𝐑𝐄𝐌𝐎𝐕𝐈𝐃𝐎```__**", f"- > **Item {item_name} foi removido do inventário de {character_name}.**", discord.Color.green())
+        await send_embed(ctx, "**__```𝐈𝐓𝐄𝐌 𝐑𝐄𝐌𝐎𝐕𝐈𝐃𝐎```__**", f"- > **Item {item_name} foi removido do inventário de {character_name}.**", discord.Color.green(), next_step="use `kill!inv NomeDoPersonagem` para revisar")
 
-    @commands.command(name='inv')
+    @commands.command(name='inv', aliases=['bag', 'inventario'])
     async def inv(self, ctx, *, args: str):
         args = parse_command_args(args)
         if len(args) < 1:
@@ -175,7 +184,7 @@ class Inventory(commands.Cog):
         )
         await ctx.send(embed=embed)
 
-    @commands.command(name='showitem')
+    @commands.command(name='showitem', aliases=['item'])
     async def show_item(self, ctx, *, args: str):
         """Comando para exibir um item do inventário"""
         parsed_args = parse_command_args(args)
@@ -201,7 +210,7 @@ class Inventory(commands.Cog):
 
         await send_embed(ctx, formatted_title, formatted_description, discord.Color.blue(), image_url)
 
-    @commands.command(name='consumeitem')
+    @commands.command(name='consumeitem', aliases=['useitem', 'usaritem'])
     async def consumeitem(self, ctx, *, args: str):
         args = parse_command_args(args)
         if len(args) < 2:
@@ -222,12 +231,12 @@ class Inventory(commands.Cog):
 
         item_id, description = item
 
-        await send_embed(ctx, "**__```𝐈𝐓𝐄𝐌 𝐂𝐎𝐍𝐒𝐔𝐌𝐈𝐃𝐎```__**", f"- > **Item {item_name} consumido!** \n**__𝐃𝐄𝐒𝐂𝐑𝐈𝐂̧𝐀̃𝐎__: {description}.**", discord.Color.green())
+        await send_embed(ctx, "**__```𝐈𝐓𝐄𝐌 𝐂𝐎𝐍𝐒𝐔𝐌𝐈𝐃𝐎```__**", f"- > **Item {item_name} consumido!** \n**__𝐃𝐄𝐒𝐂𝐑𝐈𝐂̧𝐀̃𝐎__: {description}.**", discord.Color.green(), next_step="use `kill!inv NomeDoPersonagem` para ver saldo")
 
         c.execute("DELETE FROM inventory WHERE id=?", (item_id,))
         conn.commit()
 
-    @commands.command(name='pfpitem')
+    @commands.command(name='pfpitem', aliases=['itemimg'])
     async def pfpitem(self, ctx, *, args: str):
         args = parse_command_args(args)
         if len(args) < 2:

@@ -32,7 +32,9 @@ RANK_UP_LEVELS = {
     270: 'S', 285: 'S+', 300: 'SS', 315: 'SS+', 330: 'SSS', 345: 'SSS+', 360: 'Z'
 }
 
-async def send_embed(ctx, title, description, color=discord.Color.blue()):
+async def send_embed(ctx, title, description, color=discord.Color.blue(), next_step=None):
+    if next_step:
+        description = f"{description}\n\n- > **Próximo passo:** {next_step}"
     embed = discord.Embed(title=title, description=description, color=color)
     await ctx.send(embed=embed)
 
@@ -286,7 +288,7 @@ async def get_user_id_from_name(ctx, character_name):
     return None
 
 @commands.has_permissions(administrator=True)
-@commands.command(name='xp')
+@commands.command(name='xp', aliases=['addxp', 'xpadd'])
 async def xp(ctx, character_name: str, xp_amount: int):
     user_id = await get_user_id_from_name(ctx, character_name)
     if user_id:
@@ -295,12 +297,12 @@ async def xp(ctx, character_name: str, xp_amount: int):
             if at_limit_break or level == MAX_LEVEL:
                 await send_embed(ctx, "**__```𝐋𝐈𝐌𝐈𝐓𝐀𝐃𝐎𝐑 𝐀𝐓𝐈𝐍𝐆𝐈𝐃𝐎```__**", f'- > **{character_name} atingiu o limitador de nível ou o nível máximo ({MAX_LEVEL}) e não pode receber mais XP até evoluir.**', discord.Color.orange())
             else:
-                await send_embed(ctx, "**__```𝐗𝐏 𝐀𝐃𝐈𝐂𝐈𝐎𝐍𝐀𝐃𝐎```__**", f'- > **{character_name} recebeu __{xp_amount}__ XP e agora está no nível __{level}__ com __{round(experience)}__ XP restante e __{points}__ pontos disponíveis.**', discord.Color.green())
+                await send_embed(ctx, "**__```𝐗𝐏 𝐀𝐃𝐈𝐂𝐈𝐎𝐍𝐀𝐃𝐎```__**", f'- > **{character_name} recebeu __{xp_amount}__ XP e agora está no nível __{level}__ com __{round(experience)}__ XP restante e __{points}__ pontos disponíveis.**', discord.Color.green(), next_step="use `kill!details NomeDoPersonagem` para revisar nível e pontos")
         else:
             await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f'- > **Personagem __"{character_name}"__ não encontrado.**', discord.Color.red())
 
 @commands.has_permissions(administrator=True)
-@commands.command(name='setlevel')
+@commands.command(name='setlevel', aliases=['lvlset'])
 async def setlevel(ctx, character_name: str, level: int):
     if level < 1 or level > MAX_LEVEL:
         await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **O nível deve ser um número inteiro entre 1 e {MAX_LEVEL}.**", discord.Color.red())
@@ -310,12 +312,12 @@ async def setlevel(ctx, character_name: str, level: int):
     if user_id:
         experience, new_level, points, new_rank = set_level(character_name, user_id, level)
         if experience is not None:
-            await send_embed(ctx, "**__```𝐍𝐈́𝐕𝐄𝐋 𝐀𝐉𝐔𝐒𝐓𝐀𝐃𝐎```__**", f'- > **O nível de {character_name} foi ajustado para {new_level}. Experiência zerada e {points} pontos disponíveis. Novo rank: {new_rank}.**', discord.Color.green())
+            await send_embed(ctx, "**__```𝐍𝐈́𝐕𝐄𝐋 𝐀𝐉𝐔𝐒𝐓𝐀𝐃𝐎```__**", f'- > **O nível de {character_name} foi ajustado para {new_level}. Experiência zerada e {points} pontos disponíveis. Novo rank: {new_rank}.**', discord.Color.green(), next_step="use `kill!evolve` caso tenha atingido requisito de evolução")
         else:
             await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f'- > **Personagem "{character_name}" não encontrado.**', discord.Color.red())
 
 @commands.has_permissions(administrator=True)
-@commands.command(name='evolve')
+@commands.command(name='evolve', aliases=['up'])
 async def evolve(ctx, character_name: str):
     user_id = await get_user_id_from_name(ctx, character_name)
     if user_id:
@@ -328,21 +330,21 @@ async def evolve(ctx, character_name: str):
                 next_limit_break = set_random_limit_break(level, rebirth_count)
                 c.execute("UPDATE characters SET limit_break=? WHERE name=? AND user_id=?", (next_limit_break, character_name, user_id)) 
                 conn.commit()
-                await send_embed(ctx, "**__```𝐋𝐈𝐌𝐈𝐓𝐀𝐃𝐎𝐑 𝐐𝐔𝐄𝐁𝐑𝐀𝐃𝐎```__**", f'- > **__{character_name}__ quebrou o limitador de nível e pode continuar evoluindo! Próximo limitador em __{next_limit_break}__.**', discord.Color.green())
+                await send_embed(ctx, "**__```𝐋𝐈𝐌𝐈𝐓𝐀𝐃𝐎𝐑 𝐐𝐔𝐄𝐁𝐑𝐀𝐃𝐎```__**", f'- > **__{character_name}__ quebrou o limitador de nível e pode continuar evoluindo! Próximo limitador em __{next_limit_break}__.**', discord.Color.green(), next_step="use `kill!xp` para continuar evoluindo")
             elif level in RANK_UP_LEVELS and RANK_UP_LEVELS[level] != rank:
                 new_rank = RANK_UP_LEVELS[level]
                 update_rank_and_attributes(character_name, user_id, new_rank)
                 next_limit_break = set_random_limit_break(level, rebirth_count)
                 c.execute("UPDATE characters SET experience=?, rank=?, limit_break=? WHERE name=? AND user_id=?", (0, new_rank, next_limit_break, character_name, user_id)) 
                 conn.commit()
-                await send_embed(ctx, "**__```𝐑𝐀𝐍𝐊 𝐄𝐕𝐎𝐋𝐔𝐈́𝐃𝐎```__**", f'- > **🎉 __{character_name}__ evoluiu para o rank __{new_rank}__! Próximo limitador em __{next_limit_break}__.**', discord.Color.green())
+                await send_embed(ctx, "**__```𝐑𝐀𝐍𝐊 𝐄𝐕𝐎𝐋𝐔𝐈́𝐃𝐎```__**", f'- > **🎉 __{character_name}__ evoluiu para o rank __{new_rank}__! Próximo limitador em __{next_limit_break}__.**', discord.Color.green(), next_step="use `kill!details NomeDoPersonagem` para ver os novos atributos")
             else:
                 await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f'- > **{character_name} não está no nível para evoluir ou quebrar um limitador!**', discord.Color.red())
         else:
             await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f'- > **Personagem __"{character_name}"__ não encontrado.**', discord.Color.red())
 
 @commands.has_permissions(administrator=True)
-@commands.command(name='rebirth')
+@commands.command(name='rebirth', aliases=['renascer'])
 async def rebirth(ctx, character_name: str, rebirth_type: str = None):
     if rebirth_type is None:
         await send_embed(
@@ -394,7 +396,8 @@ async def rebirth(ctx, character_name: str, rebirth_type: str = None):
                     f'**Rebirths acumulados: {rebirth_count}.**\n'
                     f'**Próximos requisitos de Rebirth: Early: {next_rebirth_levels["early"]}, '
                     f'Intermediate: {next_rebirth_levels["intermediate"]}, Late: {next_rebirth_levels["late"]}.**',
-                    discord.Color.green()
+                    discord.Color.green(),
+                    next_step="use `kill!points` para redistribuir atributos"
                 )
             else:
                 await send_embed(
@@ -415,7 +418,7 @@ async def rebirth(ctx, character_name: str, rebirth_type: str = None):
                 discord.Color.red()
             )
 
-@commands.command(name='points')
+@commands.command(name='points', aliases=['addpoint', 'pontos'])
 async def points(ctx, character_name: str, attribute: str, points: int):
     valid_attributes = ["forca", "resistencia", "agilidade", "sentidos", "vitalidade", "inteligencia"]
     if attribute.lower() not in valid_attributes:
@@ -442,7 +445,7 @@ async def points(ctx, character_name: str, attribute: str, points: int):
               (current_points, *updated_attributes.values(), character_name, ctx.author.id))
     conn.commit()
 
-    await send_embed(ctx, "**__```𝐏𝐎𝐍𝐓𝐎𝐒 𝐃𝐈𝐒𝐓𝐑𝐈𝐁𝐔𝐈́𝐃𝐎𝐒```__**", f'**🎉 __{points}__ pontos distribuídos para __{attribute}__ de __{character_name}__. Pontos restantes: __{current_points}__.**', discord.Color.green())
+    await send_embed(ctx, "**__```𝐏𝐎𝐍𝐓𝐎𝐒 𝐃𝐈𝐒𝐓𝐑𝐈𝐁𝐔𝐈́𝐃𝐎𝐒```__**", f'**🎉 __{points}__ pontos distribuídos para __{attribute}__ de __{character_name}__. Pontos restantes: __{current_points}__.**', discord.Color.green(), next_step="use `kill!details NomeDoPersonagem` para acompanhar o build")
 
 async def setup(bot):
     bot.add_command(xp)
