@@ -1,19 +1,88 @@
-# 𝐊𝐢𝐥𝐥𝐲𝐚𝐧𝐁𝐨𝐭
+# KillyanBot v2.0
 
-**KillyanBot** é um bot de Discord desenvolvido para facilitar a criação e gestão de jogos de RPG dentro de servidores do Discord. Com ele, jogadores e mestres podem gerenciar personagens, inventários, técnicas, classes, níveis e muito mais, de forma intuitiva e integrada.
+KillyanBot e um bot de Discord para gerenciamento de RPG em servidor, com foco em cadastro e evolucao de personagens, controle de inventario, tecnicas, classes e progressao por XP.
 
-### Principais Funcionalidades
+O projeto combina comandos por prefixo e slash commands para oferecer uma experiencia completa tanto para jogadores quanto para administradores.
 
-- **Gerenciamento de Personagens**: Permite criar, editar e visualizar detalhes de personagens, incluindo atributos como força, resistência, agilidade, entre outros. Os jogadores podem também atualizar o avatar e renomear seus personagens.
+## Funcionalidades
 
-- **Sistema de Classes**: Possibilita a criação e atribuição de classes e subclasses aos personagens, organizando-as em categorias específicas. Admins podem registrar e remover classes e categorias, além de vincular classes a personagens.
+- Cadastro, consulta e remocao de personagens.
+- Visualizacao detalhada de status, atributos, classe, subclasses e rank.
+- Sistema de inventario com itens, descricao e imagem.
+- Sistema de tecnicas com dominio, XP e rank.
+- Sistema de classes e categorias para organizacao de build.
+- Progressao de nivel com distribuicao de pontos de atributo.
+- Controle de privacidade dos personagens por usuario.
+- Layout personalizado de titulo e descricao para embeds.
 
-- **Inventário e Itens**: Cada personagem pode ter um inventário gerenciado pelo bot. Itens podem ser adicionados, removidos e visualizados com descrições detalhadas e imagens.
+## Estrutura do Projeto
 
-- **Técnicas e Evolução**: Registra técnicas específicas para cada personagem, que podem ganhar experiência e subir de nível com base no uso. A evolução das técnicas é feita através da leitura de mensagens específicas no Discord.
+- main.py: inicializacao do bot, banco SQLite, comandos slash e sincronizacao.
+- register.py: comandos de personagens por prefixo.
+- inventory.py: comandos de inventario.
+- tecnicas.py: comandos de tecnicas.
+- classes.py e category.py: sistema de classes e categorias.
+- xp.py: logica de experiencia, nivel e pontos.
+- logs.py e image_skill.py: modulos auxiliares.
 
-- **Sistema de XP e Níveis**: Automatiza a atribuição de pontos de experiência e níveis para os personagens, permitindo também a distribuição de pontos de atributos conforme o personagem evolui.
+## Tecnologias
 
-- **Integração com Webhooks**: Permite que ações realizadas em mensagens do Discord possam afetar diretamente a experiência e habilidades dos personagens, tornando a interação mais dinâmica e imersiva.
+- Python 3.10
+- discord.py (API do Discord)
+- SQLite (arquivo local characters.db)
+- aiohttp
+
+## Requisitos
+
+- Python 3.10 instalado
+- Token de bot do Discord
+
+Dependencias principais em requirements.txt e pyproject.toml.
+
+## Como Rodar Localmente
+
+1. Clone o repositorio.
+2. Crie e ative um ambiente virtual.
+3. Instale as dependencias:
+
+```bash
+pip install -r requirements.txt
+```
+
+4. Configure o token do bot:
+
+Opcao A: variavel de ambiente
+
+```bash
+DISCORD_TOKEN=seu_token_aqui
+```
+
+Opcao B: arquivo .env na raiz do projeto
+
+```env
+DISCORD_TOKEN=seu_token_aqui
+```
+
+5. Execute o bot:
+
+```bash
+python main.py
+```
+
+## Banco de Dados
+
+O bot usa SQLite local no arquivo characters.db.
+
+As tabelas sao criadas automaticamente na inicializacao (personagens, inventario, tecnicas, classes, categorias, layout e afins).
+
+## Observacoes
+
+- O projeto utiliza layouts visuais personalizados para embeds.
+- Alguns comandos exigem permissao de administrador.
+- Recomendado testar em servidor de desenvolvimento antes de usar em producao.
+
+## Licenca
+
+Defina aqui a licenca do projeto (exemplo: MIT).
 
 

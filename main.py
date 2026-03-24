@@ -187,6 +187,36 @@ def migrate_abilities_schema():
 
 create_tables()
 
+def apply_layout(user_id, title, description):
+    """Aplica o layout personalizado do usuário ao título e descrição"""
+    c.execute("SELECT title_layout, description_layout FROM layout_settings WHERE user_id=?", (user_id,))
+    layout = c.fetchone()
+
+    if layout:
+        title_layout, description_layout = layout
+    else:
+        title_layout = "╚╡ ⬥ {title} ⬥ ╞"
+        description_layout = "╚───► *「{description}」*"
+
+    formatted_title = title_layout.replace("{title}", title)
+    formatted_description = description_layout.replace("{description}", description)
+
+    return formatted_title, formatted_description
+
+def to_bold_sans_serif(text):
+    """Converte texto para bold sans-serif Unicode"""
+    bold_sans_serif = {
+        'A': '𝐀', 'B': '𝐁', 'C': '𝐂', 'D': '𝐃', 'E': '𝐄', 'F': '𝐅', 'G': '𝐆',
+        'H': '𝐇', 'I': '𝐈', 'J': '𝐉', 'K': '𝐊', 'L': '𝐋', 'M': '𝐌', 'N': '𝐍',
+        'O': '𝐎', 'P': '𝐏', 'Q': '𝐐', 'R': '𝐑', 'S': '𝐒', 'T': '𝐓', 'U': '𝐔',
+        'V': '𝐕', 'W': '𝐖', 'X': '𝐗', 'Y': '𝐘', 'Z': '𝐙',
+        'a': '𝐚', 'b': '𝐛', 'c': '𝐜', 'd': '𝐝', 'e': '𝐞', 'f': '𝐟', 'g': '𝐠',
+        'h': '𝐡', 'i': '𝐢', 'j': '𝐣', 'k': '𝐤', 'l': '𝐥', 'm': '𝐦', 'n': '𝐧',
+        'o': '𝐨', 'p': '𝐩', 'q': '𝐪', 'r': '𝐫', 's': '𝐬', 't': '𝐭', 'u': '𝐮',
+        'v': '𝐯', 'w': '𝐰', 'x': '𝐱', 'y': '𝐲', 'z': '𝐳'
+    }
+    return ''.join(bold_sans_serif.get(c, c) for c in text.upper())
+
 async def send_embed(ctx, title, description, color=discord.Color.blue()):
     embed = discord.Embed(title=title, description=description, color=color)
     await ctx.send(embed=embed)
@@ -582,10 +612,12 @@ async def assist_slash(interaction: discord.Interaction, tema: str = None):
     if tema:
         page_index = topic_map.get(tema.lower())
         if page_index is None:
-            await interaction.response.send_message(
-                "Tema não reconhecido. Use: personagens, habilidades, xp, inventario, classes, tecnicas, layout.",
-                ephemeral=True,
+            embed = discord.Embed(
+                title="**__```𝐄𝐑𝐑𝐎```__**",
+                description="- > **Tema não reconhecido. Use: personagens, habilidades, xp, inventario, classes, tecnicas, layout.**",
+                color=discord.Color.red()
             )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
         await interaction.response.send_message(embed=pages[page_index], ephemeral=True)
         return
@@ -608,12 +640,17 @@ async def show_rankings_slash(interaction: discord.Interaction):
     rankings = c.fetchall()
 
     if not rankings:
-        await interaction.response.send_message("Nenhum ranking encontrado no momento.", ephemeral=True)
+        embed = discord.Embed(
+            title="**__𝐓𝐎𝐏 𝟏𝟎 𝐉𝐎𝐆𝐀𝐃𝐎𝐑𝐄𝐒__**",
+            description="- > **Nenhum ranking encontrado no momento.**",
+            color=discord.Color.blue()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
 
     ranking_message = "\n".join([f"**{i+1}.** __{rank[0]}__ - Nível: **{rank[1]}**" for i, rank in enumerate(rankings)])
     embed = discord.Embed(
-        title="**__𝐓𝐎𝐏 𝟏𝟎 𝐉𝐎𝐆𝐀𝐃𝐎𝐑𝐄𝐒__**",
+        title="**__𝐓𝐎𝐏 𝟏𝟎 𝐉𝐎𝐆𝐀𝐃𝐀𝐃𝐎𝐑𝐄𝐒__**",
         description=f"- > **Aqui estão os 10 melhores jogadores por nível:**\n\n{ranking_message}",
         color=discord.Color.blue()
     )
@@ -633,7 +670,12 @@ async def find_slash(interaction: discord.Interaction, name: str):
     ]
 
     if not filtered_results:
-        await interaction.response.send_message(f'Nenhum personagem encontrado com o nome "{name}".', ephemeral=True)
+        embed = discord.Embed(
+            title="**__```𝐍𝐄𝐍𝐇𝐔𝐌 𝐄𝐍𝐂𝐎𝐍𝐓𝐑𝐀𝐃𝐎```__**",
+            description=f"- > **Nenhum personagem com o nome \"{name}\" foi encontrado.**",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
 
     preview = filtered_results[:10]
@@ -650,13 +692,14 @@ async def find_slash(interaction: discord.Interaction, name: str):
             f"𝐑𝐄𝐆𝐈𝐒𝐓𝐄𝐑𝐄𝐃: {registered_at}"
         )
 
+    description = "\n\n".join(lines)
     embed = discord.Embed(
         title="**__```𝐑𝐄𝐒𝐔𝐋𝐓𝐀𝐃𝐎𝐒```__**",
-        description="\n\n".join(lines),
+        description=f"- > {description}",
         color=discord.Color.dark_grey()
     )
     if len(filtered_results) > 10:
-        embed.set_footer(text=f"Mostrando 10 de {len(filtered_results)} resultados. Use kill!find para paginação completa.")
+        embed.set_footer(text=f"Mostrando 10 de {len(filtered_results)} resultados.")
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -670,10 +713,20 @@ async def private_slash(interaction: discord.Interaction):
         new_status = 1 - private_status[0]
         c.execute("UPDATE characters SET private=? WHERE user_id=?", (new_status, user_id))
         conn.commit()
-        status_text = "PRIVADOS" if new_status == 1 else "PÚBLICOS"
-        await interaction.response.send_message(f"Seus personagens agora estão {status_text}.", ephemeral=True)
+        status_text = "𝐏𝐑𝐈𝐕𝐀𝐃𝐎𝐒" if new_status == 1 else "𝐏𝐔́𝐁𝐋𝐈𝐂𝐎𝐒"
+        embed = discord.Embed(
+            title="**__```𝐒𝐓𝐀𝐓𝐔𝐒 𝐀𝐓𝐔𝐀𝐋𝐈𝐙𝐀𝐃𝐎```__**",
+            description=f"- > **Seus personagens agora estão {status_text}.**",
+            color=discord.Color.green()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
     else:
-        await interaction.response.send_message("Sem personagens registrados.", ephemeral=True)
+        embed = discord.Embed(
+            title="**__```𝐀𝐕𝐈𝐒𝐎```__**",
+            description="- > **Sem personagens registrados.**",
+            color=discord.Color.blue()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @bot.tree.command(name='settitle', description='Define seu layout de titulo personalizado')
@@ -690,7 +743,12 @@ async def set_title_layout_slash(interaction: discord.Interaction, layout: str):
         (user_id, layout),
     )
     conn.commit()
-    await interaction.response.send_message(f"Layout de título atualizado para:\n{layout}", ephemeral=True)
+    embed = discord.Embed(
+        title="**__```𝐋𝐀𝐘𝐎𝐔𝐓 𝐀𝐓𝐔𝐀𝐋𝐈𝐙𝐀𝐃𝐎```__**",
+        description=f"- > **Layout de título atualizado para:**\n```{layout}```",
+        color=discord.Color.green()
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @bot.tree.command(name='setdesc', description='Define seu layout de descricao personalizado')
@@ -707,7 +765,12 @@ async def set_description_layout_slash(interaction: discord.Interaction, layout:
         (user_id, layout),
     )
     conn.commit()
-    await interaction.response.send_message(f"Layout de descrição atualizado para:\n{layout}", ephemeral=True)
+    embed = discord.Embed(
+        title="**__```𝐋𝐀𝐘𝐎𝐔𝐓 𝐀𝐓𝐔𝐀𝐋𝐈𝐙𝐀𝐃𝐎```__**",
+        description=f"- > **Layout de descrição atualizado para:**\n```{layout}```",
+        color=discord.Color.green()
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @bot.tree.command(name='register', description='Registra um novo personagem')
@@ -715,7 +778,12 @@ async def set_description_layout_slash(interaction: discord.Interaction, layout:
 async def register_slash(interaction: discord.Interaction, name: str, image_url: str = None):
     c.execute("SELECT 1 FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (name, interaction.user.id))
     if c.fetchone():
-        await interaction.response.send_message("Você já tem um personagem com esse nome.", ephemeral=True)
+        embed = discord.Embed(
+            title="**__```𝐍𝐎𝐌𝐄 𝐄𝐌 𝐔𝐒𝐎```__**",
+            description="- > **Você já tem um personagem com esse nome.**",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
 
     c.execute(
@@ -724,7 +792,14 @@ async def register_slash(interaction: discord.Interaction, name: str, image_url:
     )
     conn.commit()
 
-    await interaction.response.send_message(f"Personagem **{name}** registrado com sucesso.", ephemeral=True)
+    embed = discord.Embed(
+        title="**__```𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌 𝐑𝐄𝐆𝐈𝐒𝐓𝐑𝐀𝐃𝐎!!!```__**",
+        description=f'- > **Personagem __{name}__ registrado com sucesso!**\n\n- > **Próximo passo:** use `kill!details {name}` para ver o perfil',
+        color=discord.Color.green()
+    )
+    if image_url:
+        embed.set_image(url=image_url)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @bot.tree.command(name='remove', description='Remove um personagem seu')
@@ -732,45 +807,111 @@ async def register_slash(interaction: discord.Interaction, name: str, image_url:
 async def remove_slash(interaction: discord.Interaction, name: str):
     c.execute("DELETE FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (name, interaction.user.id))
     if c.rowcount == 0:
-        await interaction.response.send_message("Personagem não encontrado ou sem permissão.", ephemeral=True)
+        embed = discord.Embed(
+            title="**__```𝐄𝐑𝐑𝐎```__**",
+            description="- > **Personagem não encontrado ou você não tem permissão para removê-lo.**",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
     conn.commit()
-    await interaction.response.send_message(f"Personagem **{name}** removido com sucesso.", ephemeral=True)
+    embed = discord.Embed(
+        title="**__```𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌 𝐑𝐄𝐌𝐎𝐕𝐈𝐃𝐀```__**",
+        description=f'- > **Personagem __{name}__ removido com sucesso.**\n\n- > **Próximo passo:** use `kill!register` para criar outro',
+        color=discord.Color.green()
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 @bot.tree.command(name='details', description='Mostra detalhes do personagem')
 @app_commands.describe(name='Nome do personagem')
 async def details_slash(interaction: discord.Interaction, name: str):
     c.execute(
-        "SELECT character_id, name, image_url, experience, level, points, rank FROM characters WHERE name COLLATE NOCASE=? AND user_id=?",
+        "SELECT character_id, name, image_url, experience, level, points, rank, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia FROM characters WHERE name COLLATE NOCASE=? AND user_id=?",
         (name, interaction.user.id)
     )
     row = c.fetchone()
     if not row:
-        await interaction.response.send_message("Personagem não encontrado.", ephemeral=True)
+        embed = discord.Embed(
+            title="**__```𝐄𝐑𝐑𝐎```__**",
+            description="- > **Personagem não encontrado ou você não tem permissão para visualizá-lo.**",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
 
-    character_id, char_name, image_url, experience, level, points, rank = row
+    character_id, char_name, image_url, experience, level, points, rank, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia = row
     c.execute("SELECT main_class, sub_class1, sub_class2 FROM characters_classes WHERE character_id=?", (character_id,))
     classes = c.fetchone() or (None, None, None)
     main_class, sub_class1, sub_class2 = classes
 
-    embed = discord.Embed(
-        title=f"Detalhes de {char_name}",
-        description=(
-            f"Nível: **{level}**\n"
-            f"XP: **{experience}**\n"
-            f"Pontos: **{points}**\n"
-            f"Rank: **{rank}**\n"
-            f"Classe principal: **{main_class or 'None'}**\n"
-            f"Sub-classes: **{sub_class1 or 'None'}**, **{sub_class2 or 'None'}**"
-        ),
-        color=discord.Color.dark_grey(),
+    points_info = f"{points}" if points > 0 else "𝐍𝐎𝐍𝐄"
+    
+    description = (
+        f"``` 𝐈𝐍𝐅𝐎𝐑𝐌𝐀𝐓𝐈𝐎𝐍 ```- — ◇\n"
+        f"> **__𝐍𝐀𝐌𝐄__**\n"
+        f"● *{char_name}*\n"
+        f"> **__𝐋𝐄𝐕𝐄𝐋__**\n"
+        f"● *{level}*\n"
+        f"> **__𝐄𝐗𝐏__**\n"
+        f"○ *{experience}*\n"
+        f"> **__𝐂𝐋𝐀𝐒𝐒__**\n"
+        f"● *{main_class or '𝐍𝐎𝐍𝐄'}*\n"
+        f"> **__𝐒𝐔𝐁𝐂𝐋𝐀𝐒𝐒__**\n"
+        f"○ *{sub_class1 or '𝐍𝐎𝐍𝐄'}, {sub_class2 or '𝐍𝐎𝐍𝐄'}*\n\n"
+        f"- — *[* **𝐏𝐎𝐈𝐍𝐓𝐒: ** ` {points_info} ` *]* —\n"
+        f"● ○ ***[*** `𝐑𝐀𝐍𝐊 {rank}` ***]*** ○ ●"
     )
+
+    embed = discord.Embed(title="``` 𝔻𝔼𝕿𝔸𝕴𝕷𝕾 ```", description=description, color=discord.Color.dark_grey())
     if image_url:
         embed.set_image(url=image_url)
 
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    # Criar view com buttons
+    view = discord.ui.View()
+    
+    button_status = discord.ui.Button(label="𝐒𝐓𝐀𝐓𝐔𝐒", style=discord.ButtonStyle.secondary, custom_id=f"status_{interaction.user.id}")
+    button_inventory = discord.ui.Button(label="𝐈𝐍𝐕𝐄𝐍𝐓𝐎𝐑𝐘", style=discord.ButtonStyle.secondary, custom_id=f"inventory_{interaction.user.id}")
+    button_techniques = discord.ui.Button(label="𝐓𝐄𝐂𝐇𝐍𝐈𝐐𝐔𝐄𝐒", style=discord.ButtonStyle.secondary, custom_id=f"techniques_{interaction.user.id}")
+
+    async def button_status_callback(button_interaction):
+        if button_interaction.user.id != interaction.user.id:
+            await button_interaction.response.send_message("- > **Você não tem permissão.**", ephemeral=True)
+            return
+        
+        status_description = (
+            f"# — • ***[*** __𝐀𝐓𝐓𝐑𝐈𝐁𝐔𝐓𝐄𝐒__ ***]*** • —\n"
+            f"- ``` . . . ```\n"
+            f"- 𝐒𝐓𝐑𝐄𝐍𝐆𝐓𝐇 ***[*** ` {forca} ` ***]***\n"
+            f"- 𝐑𝐄𝐒𝐈𝐒𝐓𝐀𝐍𝐂𝐄 ***[*** ` {resistencia} ` ***]***\n"
+            f"- 𝐀𝐆𝐈𝐋𝐈𝐓𝐘 ***[*** ` {agilidade} ` ***]***\n"
+            f"- 𝐒𝐄𝐍𝐒𝐄𝐒 ***[*** ` {sentidos} ` ***]***\n"
+            f"- 𝐕𝐈𝐓𝐀𝐋𝐈𝐓𝐘 ***[*** ` {vitalidade} ` ***]***\n"
+            f"- 𝐈𝐍𝐓𝐄𝐋𝐋𝐈𝐆𝐄𝐍𝐂𝐄 ***[*** ` {inteligencia} ` ***]***\n"
+            f"- ``` . . . ```"
+        )
+        
+        status_embed = discord.Embed(title="𝕾𝖙𝖆𝖋𝖚𝖘", description=status_description, color=discord.Color.dark_grey())
+        
+        button_back = discord.ui.Button(label="𝐃𝐄𝐓𝐀𝐈𝐋𝐒", style=discord.ButtonStyle.secondary)
+        async def button_back_callback(back_interaction):
+            if back_interaction.user.id != interaction.user.id:
+                await back_interaction.response.send_message("- > **Você não tem permissão.**", ephemeral=True)
+                return
+            await back_interaction.response.edit_message(embed=embed, view=view)
+        
+        button_back.callback = button_back_callback
+        back_view = discord.ui.View()
+        back_view.add_item(button_back)
+        
+        await button_interaction.response.edit_message(embed=status_embed, view=back_view)
+
+    button_status.callback = button_status_callback
+    view.add_item(button_status)
+    view.add_item(button_inventory)
+    view.add_item(button_techniques)
+
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 @bot.tree.command(name='list', description='Lista personagens do usuário')
@@ -781,18 +922,28 @@ async def list_slash(interaction: discord.Interaction, member: discord.Member = 
     c.execute("SELECT private FROM characters WHERE user_id=? LIMIT 1", (target_user,))
     private_status = c.fetchone()
     if private_status and private_status[0] == 1 and interaction.user.id != target_user:
-        await interaction.response.send_message("Os personagens deste usuário são privados.", ephemeral=True)
+        embed = discord.Embed(
+            title="**__```𝐄𝐑𝐑𝐎```__**",
+            description="- > **Os personagens deste usuário são privados.**",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
 
     c.execute("SELECT name, level, rank FROM characters WHERE user_id=? ORDER BY level DESC", (target_user,))
     chars = c.fetchall()
     if not chars:
-        await interaction.response.send_message("Nenhum personagem registrado.", ephemeral=True)
+        embed = discord.Embed(
+            title="**__```𝐊𝐎𝐍𝐇𝐔𝐌 𝐑𝐄𝐆𝐈𝐒𝐓𝐑𝐀𝐃𝐎```__**",
+            description="- > **Nenhum personagem registrado.**",
+            color=discord.Color.blue()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
 
     lines = [f"**{name}** - Nível {level} ({rank})" for name, level, rank in chars[:20]]
     embed = discord.Embed(
-        title="Lista de personagens",
+        title="**__```𝐋𝐈𝐒𝐓𝐀 𝐃𝐄 𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐍𝐒```__**",
         description="\n".join(lines),
         color=discord.Color.dark_grey(),
     )
@@ -812,7 +963,12 @@ async def pendencias_slash(interaction: discord.Interaction, name: str = None):
 
     character = c.fetchone()
     if not character:
-        await interaction.response.send_message("Nenhum personagem encontrado para verificar pendências.", ephemeral=True)
+        embed = discord.Embed(
+            title="**__```𝐀𝐕𝐈𝐒𝐎```__**",
+            description="- > **Nenhum personagem encontrado para verificar pendências.**",
+            color=discord.Color.blue()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
 
     character_id, char_name, points, level, limit_break, rank = character
@@ -842,11 +998,16 @@ async def pendencias_slash(interaction: discord.Interaction, name: str = None):
         pendencias_lista.append(f"- Você atingiu o limitador de nível (**{limit_break}**). Use `kill!evolve {char_name}`.")
 
     if not pendencias_lista:
-        await interaction.response.send_message(f"{char_name} está em dia.", ephemeral=True)
+        embed = discord.Embed(
+            title="**__```𝐀𝐑𝐄𝐍𝐀𝐃𝐎```__**",
+            description=f"- > **{char_name} está em dia.**",
+            color=discord.Color.green()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
 
     embed = discord.Embed(
-        title=f"Pendências de {char_name}",
+        title=f"**__```𝐏𝐄𝐍𝐃𝐄̂𝐍𝐂𝐈𝐀𝐒 𝐃𝐄 {char_name.upper()}```__**",
         description="\n".join(pendencias_lista),
         color=discord.Color.orange(),
     )
@@ -859,17 +1020,37 @@ async def inv_slash(interaction: discord.Interaction, character_name: str):
     c.execute("SELECT item_name, description FROM inventory WHERE character_name COLLATE NOCASE=? AND user_id=?", (character_name, interaction.user.id))
     items = c.fetchall()
     if not items:
-        await interaction.response.send_message(f"O inventário de {character_name} está vazio.", ephemeral=True)
+        embed = discord.Embed(
+            title="**__```𝐈𝐍𝐕𝐄𝐍𝐓𝐀́𝐑𝐈𝐎 𝐕𝐀𝐙𝐈𝐎```__**",
+            description=f"- > **O inventário de {character_name} está vazio.**",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
 
-    item_list = "\n".join([f"- {item[0]}: {item[1]}" for item in items[:25]])
+    c.execute("SELECT rank FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (character_name, interaction.user.id))
+    character_rank = c.fetchone()
+    if not character_rank:
+        embed = discord.Embed(
+            title="**__```𝐄𝐑𝐑𝐎```__**",
+            description=f"- > **Personagem {character_name} não encontrado.**",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    rank = character_rank[0]
+    capacity = 10 + (rank * 2)
+    
+    item_list = "\n".join([f"- {item[0]}: {item[1]}" for item in items])
+    formatted_character_name = to_bold_sans_serif(character_name)
+    
     embed = discord.Embed(
-        title=f"Inventário de {character_name}",
-        description=item_list,
-        color=discord.Color.blue(),
+        title=f"𝐈𝐧𝐯𝐞𝐧𝐭𝐚́𝐫𝐢𝐨 𝐝𝐞 {formatted_character_name}",
+        description=f"{item_list}\n\n𝐂𝐚𝐩𝐚𝐜𝐢𝐝𝐚𝐝𝐞: {len(items)}/{capacity} itens",
+        color=discord.Color.blue()
     )
-    if len(items) > 25:
-        embed.set_footer(text=f"Mostrando 25 de {len(items)} itens.")
+    
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -882,11 +1063,17 @@ async def showitem_slash(interaction: discord.Interaction, character_name: str, 
     )
     item = c.fetchone()
     if not item:
-        await interaction.response.send_message(f"Item {item_name} não encontrado no inventário de {character_name}.", ephemeral=True)
+        embed = discord.Embed(
+            title="**__```𝐄𝐑𝐑𝐎```__**",
+            description=f"- > **Item {item_name} não encontrado no inventário de {character_name}.**",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
 
     found_name, description, image_url = item
-    embed = discord.Embed(title=found_name, description=description, color=discord.Color.blue())
+    formatted_title, formatted_description = apply_layout(interaction.user.id, found_name, description)
+    embed = discord.Embed(title=formatted_title, description=formatted_description, color=discord.Color.blue())
     if image_url:
         embed.set_image(url=image_url)
     await interaction.response.send_message(embed=embed, ephemeral=True)
