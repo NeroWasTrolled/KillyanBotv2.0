@@ -215,7 +215,7 @@ def to_bold_sans_serif(text):
         'o': '𝐨', 'p': '𝐩', 'q': '𝐪', 'r': '𝐫', 's': '𝐬', 't': '𝐭', 'u': '𝐮',
         'v': '𝐯', 'w': '𝐰', 'x': '𝐱', 'y': '𝐲', 'z': '𝐳'
     }
-    return ''.join(bold_sans_serif.get(c, c) for c in text.upper())
+    return ''.join(bold_sans_serif[ch] if ch in bold_sans_serif else ch for ch in text.upper())
 
 async def send_embed(ctx, title, description, color=discord.Color.blue()):
     embed = discord.Embed(title=title, description=description, color=color)
@@ -511,7 +511,7 @@ def build_menu_embed_and_view():
     return embed, view
 
 @bot.command(name='assist', aliases=['ajuda'])
-async def assist(ctx, *, tema: str = None):
+async def assist(ctx, *, tema: str | None = None):
     pages = build_assist_pages()
     topic_map = assist_topic_map()
 
@@ -605,7 +605,7 @@ async def menu(ctx):
 
 @bot.tree.command(name='assist', description='Mostra a ajuda geral ou por tema')
 @app_commands.describe(tema='personagens, habilidades, xp, inventario, classes, tecnicas ou layout')
-async def assist_slash(interaction: discord.Interaction, tema: str = None):
+async def assist_slash(interaction: discord.Interaction, tema: str | None = None):
     pages = build_assist_pages()
     topic_map = assist_topic_map()
 
@@ -775,7 +775,7 @@ async def set_description_layout_slash(interaction: discord.Interaction, layout:
 
 @bot.tree.command(name='register', description='Registra um novo personagem')
 @app_commands.describe(name='Nome do personagem', image_url='URL opcional da imagem')
-async def register_slash(interaction: discord.Interaction, name: str, image_url: str = None):
+async def register_slash(interaction: discord.Interaction, name: str, image_url: str | None = None):
     c.execute("SELECT 1 FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (name, interaction.user.id))
     if c.fetchone():
         embed = discord.Embed(
@@ -867,6 +867,8 @@ async def details_slash(interaction: discord.Interaction, name: str):
     if image_url:
         embed.set_image(url=image_url)
 
+    owner_id = interaction.user.id
+
     # Criar view com buttons
     view = discord.ui.View()
     
@@ -874,9 +876,9 @@ async def details_slash(interaction: discord.Interaction, name: str):
     button_inventory = discord.ui.Button(label="𝐈𝐍𝐕𝐄𝐍𝐓𝐎𝐑𝐘", style=discord.ButtonStyle.secondary, custom_id=f"inventory_{interaction.user.id}")
     button_techniques = discord.ui.Button(label="𝐓𝐄𝐂𝐇𝐍𝐈𝐐𝐔𝐄𝐒", style=discord.ButtonStyle.secondary, custom_id=f"techniques_{interaction.user.id}")
 
-    async def button_status_callback(button_interaction):
-        if button_interaction.user.id != interaction.user.id:
-            await button_interaction.response.send_message("- > **Você não tem permissão.**", ephemeral=True)
+    async def button_status_callback(interaction: discord.Interaction):
+        if interaction.user.id != owner_id:
+            await interaction.response.send_message("- > **Você não tem permissão.**", ephemeral=True)
             return
         
         status_description = (
@@ -894,17 +896,17 @@ async def details_slash(interaction: discord.Interaction, name: str):
         status_embed = discord.Embed(title="𝕾𝖙𝖆𝖋𝖚𝖘", description=status_description, color=discord.Color.dark_grey())
         
         button_back = discord.ui.Button(label="𝐃𝐄𝐓𝐀𝐈𝐋𝐒", style=discord.ButtonStyle.secondary)
-        async def button_back_callback(back_interaction):
-            if back_interaction.user.id != interaction.user.id:
-                await back_interaction.response.send_message("- > **Você não tem permissão.**", ephemeral=True)
+        async def button_back_callback(interaction: discord.Interaction):
+            if interaction.user.id != owner_id:
+                await interaction.response.send_message("- > **Você não tem permissão.**", ephemeral=True)
                 return
-            await back_interaction.response.edit_message(embed=embed, view=view)
+            await interaction.response.edit_message(embed=embed, view=view)
         
         button_back.callback = button_back_callback
         back_view = discord.ui.View()
         back_view.add_item(button_back)
         
-        await button_interaction.response.edit_message(embed=status_embed, view=back_view)
+        await interaction.response.edit_message(embed=status_embed, view=back_view)
 
     button_status.callback = button_status_callback
     view.add_item(button_status)
@@ -916,7 +918,7 @@ async def details_slash(interaction: discord.Interaction, name: str):
 
 @bot.tree.command(name='list', description='Lista personagens do usuário')
 @app_commands.describe(member='Usuário opcional para listar personagens')
-async def list_slash(interaction: discord.Interaction, member: discord.Member = None):
+async def list_slash(interaction: discord.Interaction, member: discord.Member | None = None):
     target_user = member.id if member else interaction.user.id
 
     c.execute("SELECT private FROM characters WHERE user_id=? LIMIT 1", (target_user,))
@@ -955,7 +957,7 @@ async def list_slash(interaction: discord.Interaction, member: discord.Member = 
 
 @bot.tree.command(name='pendencias', description='Mostra pendências do personagem')
 @app_commands.describe(name='Nome do personagem (opcional)')
-async def pendencias_slash(interaction: discord.Interaction, name: str = None):
+async def pendencias_slash(interaction: discord.Interaction, name: str | None = None):
     if name:
         c.execute("SELECT character_id, name, points, level, limit_break, rank FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (name, interaction.user.id))
     else:
@@ -1083,7 +1085,7 @@ async def showitem_slash(interaction: discord.Interaction, character_name: str, 
 @app_commands.default_permissions(administrator=True)
 @app_commands.describe(character_name='Nome do personagem', xp_amount='Quantidade de XP')
 async def xp_slash(interaction: discord.Interaction, character_name: str, xp_amount: int):
-    if not interaction.user.guild_permissions.administrator:
+    if interaction.guild is None or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("Sem permissão de administrador.", ephemeral=True)
         return
 
