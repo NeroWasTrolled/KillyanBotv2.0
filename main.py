@@ -1042,7 +1042,13 @@ async def inv_slash(interaction: discord.Interaction, character_name: str):
         return
 
     rank = character_rank[0]
-    capacity = 10 + (rank * 2)
+    rank_capacities = {
+        'F-': 4, 'F': 8, 'F+': 12, 'E-': 16, 'E': 20, 'E+': 24,
+        'D-': 28, 'D': 32, 'D+': 36, 'C-': 40, 'C': 44, 'C+': 48,
+        'B-': 52, 'B': 56, 'B+': 60, 'A-': 64, 'A': 68, 'A+': 72,
+        'S': 76, 'S+': 80, 'SS': 84, 'SS+': 88, 'SSS': 92, 'SSS+': 96, 'Z': 100
+    }
+    capacity = rank_capacities.get(rank, 4)
     
     item_list = "\n".join([f"- {item[0]}: {item[1]}" for item in items])
     formatted_character_name = to_bold_sans_serif(character_name)
