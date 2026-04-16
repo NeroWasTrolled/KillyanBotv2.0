@@ -4,11 +4,16 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 import sqlite3
 import re
+import os
 import aiohttp  
+from database.connection import create_connection
 
-conn = sqlite3.connect('characters.db')
+BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+TEMPLATE_IMAGE_PATH = os.path.join(BASE_DIR, "assets", "images", "image.png")
+FONT_PATH = os.path.join(BASE_DIR, "assets", "fonts", "DejaVuSans-Bold.ttf")
+
+conn = create_connection()
 c = conn.cursor()
-c.execute("PRAGMA foreign_keys = ON")
 
 def clean_discord_formatting(text):
     return re.sub(r'[*_>~-]', '', text)
@@ -27,15 +32,14 @@ async def download_image(image_url):
             return image
 
 async def generate_ability_image(character_name, technique_name, passive, rank, mastery, xp, xp_needed, description, image_url=None):
-    image = Image.open("image.png")  
+    image = Image.open(TEMPLATE_IMAGE_PATH)
 
     draw = ImageDraw.Draw(image)
 
-    font_path = "DejaVuSans-Bold.ttf" 
-    title_font = ImageFont.truetype(font_path, 30)  
-    main_font = ImageFont.truetype(font_path, 30)  
-    mastery_xp_font = ImageFont.truetype(font_path, 16)  
-    description_font = ImageFont.truetype(font_path, 18)  
+    title_font = ImageFont.truetype(FONT_PATH, 30)
+    main_font = ImageFont.truetype(FONT_PATH, 30)
+    mastery_xp_font = ImageFont.truetype(FONT_PATH, 16)
+    description_font = ImageFont.truetype(FONT_PATH, 18)
 
     text_color = "#FFE162"
 

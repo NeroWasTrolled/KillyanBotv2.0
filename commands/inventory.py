@@ -1,46 +1,29 @@
 import sqlite3
 from discord.ext import commands
-from logs import Logs
+from commands.logs import Logs
 import discord
 import asyncio
 import re
+from database.connection import create_connection
+from utils.common import (
+    apply_layout as shared_apply_layout,
+    parse_quoted_args,
+    sanitize_input,
+    send_embed,
+    to_bold_sans_serif,
+)
 
-conn = sqlite3.connect('characters.db')
+conn = create_connection()
 c = conn.cursor()
-c.execute("PRAGMA foreign_keys = ON")
-
-def sanitize_input(input_str):
-    if not re.match(r"^[a-zA-Z0-9\s]*$", input_str):
-        return False
-    return True
 
 def apply_layout(user_id, title, description):
-    c.execute("SELECT title_layout, description_layout FROM layout_settings WHERE user_id=?", (user_id,))
-    layout = c.fetchone()
-
-    if layout:
-        title_layout, description_layout = layout
-    else:
-        title_layout = "**╚╡ ⬥ {title} ⬥ ╞**"
-        description_layout = "╚───► *「{description}」*"
-
-    formatted_title = title_layout.replace("{title}", title)
-    formatted_description = description_layout.replace("{description}", description)
-
-    return formatted_title, formatted_description
-
-def to_bold_sans_serif(text):
-    bold_sans_serif = {
-        'A': '𝐀', 'B': '𝐁', 'C': '𝐂', 'D': '𝐃', 'E': '𝐄', 'F': '𝐅', 'G': '𝐆',
-        'H': '𝐇', 'I': '𝐈', 'J': '𝐉', 'K': '𝐊', 'L': '𝐋', 'M': '𝐌', 'N': '𝐍',
-        'O': '𝐎', 'P': '𝐏', 'Q': '𝐐', 'R': '𝐑', 'S': '𝐒', 'T': '𝐓', 'U': '𝐔',
-        'V': '𝐕', 'W': '𝐖', 'X': '𝐗', 'Y': '𝐘', 'Z': '𝐙',
-        'a': '𝐚', 'b': '𝐛', 'c': '𝐜', 'd': '𝐝', 'e': '𝐞', 'f': '𝐟', 'g': '𝐠',
-        'h': '𝐡', 'i': '𝐢', 'j': '𝐣', 'k': '𝐤', 'l': '𝐥', 'm': '𝐦', 'n': '𝐧',
-        'o': '𝐨', 'p': '𝐩', 'q': '𝐪', 'r': '𝐫', 's': '𝐬', 't': '𝐭', 'u': '𝐮',
-        'v': '𝐯', 'w': '𝐰', 'x': '𝐱', 'y': '𝐲', 'z': '𝐳'
-    }
-    return ''.join(bold_sans_serif.get(c, c) for c in text.upper())
+    return shared_apply_layout(
+        user_id,
+        title,
+        description,
+        default_title="**╚╡ ⬥ {title} ⬥ ╞**",
+        default_description="╚───► *「{description}」*",
+    )
 
 def get_inventory_capacity(rank):
     rank_capacities = {
@@ -52,18 +35,8 @@ def get_inventory_capacity(rank):
     }
     return rank_capacities.get(rank, 4)
 
-async def send_embed(ctx, title, description, color=discord.Color.blue(), image_url=None, next_step=None):
-    if next_step:
-        description = f"{description}\n\n- > **Próximo passo:** {next_step}"
-    embed = discord.Embed(title=title, description=description, color=color)
-    if image_url:
-        embed.set_image(url=image_url)
-    await ctx.send(embed=embed)
-
 def parse_command_args(args):
-    pattern = r"'(.*?)'|(\S+)"
-    matches = re.findall(pattern, args)
-    return [match[0] if match[0] else match[1] for match in matches]
+    return parse_quoted_args(args)
 
 class Inventory(commands.Cog):
     def __init__(self, bot):
@@ -76,18 +49,23 @@ class Inventory(commands.Cog):
 
     @commands.command(name='additem', aliases=['addi', 'itemadd'])
     async def additem(self, ctx, *, args: str):
-        args = parse_command_args(args)
-        if len(args) < 2:
+        parsed_args = parse_command_args(args)
+        if len(parsed_args) < 2:
             await send_embed(ctx, "**__```𝐅𝐎𝐑𝐌𝐀𝐓𝐎 𝐈𝐍𝐕𝐀́𝐋𝐈𝐃𝐎```__**", "- > **Uso correto: kill!additem 'Nome do Personagem' 'Nome do Item'**", discord.Color.red())
             return
 
-        character_name, item_name = args[0], ' '.join(args[1:])
+        character_name, item_name = parsed_args[0], ' '.join(parsed_args[1:])
         valid, error_msg = self.validate_inputs(character_name, item_name)
         if not valid:
             await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", error_msg, discord.Color.red())
             return
 
-        c.execute("SELECT rank FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (character_name, ctx.author.id))
+        c.execute("""
+            SELECT p.rank
+            FROM characters c
+            JOIN character_progression p ON c.character_id = p.character_id
+            WHERE c.name COLLATE NOCASE=? AND c.user_id=?
+        """, (character_name, ctx.author.id))
         character = c.fetchone()
         if not character:
             await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f'- > **Personagem {character_name} não encontrado.**', discord.Color.red())
@@ -129,12 +107,12 @@ class Inventory(commands.Cog):
 
     @commands.command(name='delitem', aliases=['deli', 'itemdel'])
     async def delitem(self, ctx, *, args: str):
-        args = parse_command_args(args)
-        if len(args) < 2:
+        parsed_args = parse_command_args(args)
+        if len(parsed_args) < 2:
             await send_embed(ctx, "**__```𝐅𝐎𝐑𝐌𝐀𝐓𝐎 𝐈𝐍𝐕𝐀́𝐋𝐈𝐃𝐎```__**", "- > **Uso correto: kill!delitem 'Nome do Personagem' 'Nome do Item'**", discord.Color.red())
             return
 
-        character_name, item_name = args[0], ' '.join(args[1:])
+        character_name, item_name = parsed_args[0], ' '.join(parsed_args[1:])
         valid, error_msg = self.validate_inputs(character_name, item_name)
         if not valid:
             await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", error_msg, discord.Color.red())
@@ -153,12 +131,12 @@ class Inventory(commands.Cog):
 
     @commands.command(name='inv', aliases=['bag', 'inventario'])
     async def inv(self, ctx, *, args: str):
-        args = parse_command_args(args)
-        if len(args) < 1:
+        parsed_args = parse_command_args(args)
+        if len(parsed_args) < 1:
             await send_embed(ctx, "**__```𝐅𝐎𝐑𝐌𝐀𝐓𝐎 𝐈𝐍𝐕𝐀́𝐋𝐈𝐃𝐎```__**", "- > **Uso correto: kill!inv 'Nome do Personagem'**", discord.Color.red())
             return
 
-        character_name = args[0]
+        character_name = parsed_args[0]
 
         c.execute("SELECT item_name, description FROM inventory WHERE character_name COLLATE NOCASE=? AND user_id=?", (character_name, ctx.author.id))
         items = c.fetchall()
@@ -167,7 +145,12 @@ class Inventory(commands.Cog):
             return
 
         item_list = "\n".join([f"- {item[0]}: {item[1]}" for item in items])
-        c.execute("SELECT rank FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (character_name, ctx.author.id))
+        c.execute("""
+            SELECT p.rank
+            FROM characters c
+            JOIN character_progression p ON c.character_id = p.character_id
+            WHERE c.name COLLATE NOCASE=? AND c.user_id=?
+        """, (character_name, ctx.author.id))
         character_rank = c.fetchone()
         if not character_rank:
             await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **Personagem {character_name} não encontrado.**", discord.Color.red())
@@ -212,12 +195,12 @@ class Inventory(commands.Cog):
 
     @commands.command(name='consumeitem', aliases=['useitem', 'usaritem'])
     async def consumeitem(self, ctx, *, args: str):
-        args = parse_command_args(args)
-        if len(args) < 2:
+        parsed_args = parse_command_args(args)
+        if len(parsed_args) < 2:
             await send_embed(ctx, "**__```𝐅𝐎𝐑𝐌𝐀𝐓𝐎 𝐈𝐍𝐕𝐀́𝐋𝐈𝐃𝐎```__**", "- > **Uso correto: kill!consumeitem 'Nome do Personagem' 'Nome do Item'**", discord.Color.red())
             return
 
-        character_name, item_name = args[0], ' '.join(args[1:])
+        character_name, item_name = parsed_args[0], ' '.join(parsed_args[1:])
         valid, error_msg = self.validate_inputs(character_name, item_name)
         if not valid:
             await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", error_msg, discord.Color.red())
@@ -238,12 +221,12 @@ class Inventory(commands.Cog):
 
     @commands.command(name='pfpitem', aliases=['itemimg'])
     async def pfpitem(self, ctx, *, args: str):
-        args = parse_command_args(args)
-        if len(args) < 2:
+        parsed_args = parse_command_args(args)
+        if len(parsed_args) < 2:
             await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Uso correto: `kill!pfpitem [nome personagem] [nome item]`**", discord.Color.red())
             return
 
-        character_name, item_name = args[0], ' '.join(args[1:])
+        character_name, item_name = parsed_args[0], ' '.join(parsed_args[1:])
 
         c.execute("SELECT id FROM inventory WHERE character_name COLLATE NOCASE=? AND item_name COLLATE NOCASE=? AND user_id=?", (character_name, item_name, ctx.author.id))
         item = c.fetchone()

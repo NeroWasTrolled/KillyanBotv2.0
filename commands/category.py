@@ -5,13 +5,13 @@ from discord.ui import Button, View, Modal, TextInput
 import math
 import re
 import asyncio
+from database.connection import create_connection
 
 class Categories(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.conn = sqlite3.connect('characters.db')
+        self.conn = create_connection()
         self.c = self.conn.cursor()
-        self.c.execute("PRAGMA foreign_keys = ON")
 
     def parse_registration_args(self, args):
         """Função para parsear argumentos"""

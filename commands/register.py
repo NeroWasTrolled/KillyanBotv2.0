@@ -1,50 +1,26 @@
 import discord
 from discord.ext import commands
-from logs import Logs
 from discord.ui import Button, View, Modal, TextInput
 import re
 import sqlite3
 import math
 import datetime
-from xp import xp_for_next_level
+from typing import Optional
+from database.connection import create_connection
+from utils.common import (
+    apply_layout as shared_apply_layout,
+    parse_quoted_args,
+    send_embed,
+    to_bold_sans_serif,
+)
+from commands.xp import xp_for_next_level
+from services.characteristics_service import get_effective_attribute
 
-conn = sqlite3.connect('characters.db', check_same_thread=False)
+conn = create_connection()
 c = conn.cursor()
-c.execute("PRAGMA foreign_keys = ON")
-
-def apply_layout(user_id, title, description):
-    c.execute("SELECT title_layout, description_layout FROM layout_settings WHERE user_id=?", (user_id,))
-    layout = c.fetchone()
-
-    if layout:
-        title_layout, description_layout = layout
-    else:
-        title_layout = "╚ **╚═══━═─ ✦ ─═━═══╗**\n**╚╡ ⬥ {title} ⬥ ╞**"
-        description_layout = "╚───► *「{description}」*"
-
-    formatted_title = title_layout.replace("{title}", title)
-    formatted_description = description_layout.replace("{description}", description)
-
-    return formatted_title, formatted_description
-
-
-def to_bold_sans_serif(text):
-    bold_sans_serif = {
-        'A': '𝐀', 'B': '𝐁', 'C': '𝐂', 'D': '𝐃', 'E': '𝐄', 'F': '𝐅', 'G': '𝐆',
-        'H': '𝐇', 'I': '𝐈', 'J': '𝐉', 'K': '𝐊', 'L': '𝐋', 'M': '𝐌', 'N': '𝐍',
-        'O': '𝐎', 'P': '𝐏', 'Q': '𝐐', 'R': '𝐑', 'S': '𝐒', 'T': '𝐓', 'U': '𝐔',
-        'V': '𝐕', 'W': '𝐖', 'X': '𝐗', 'Y': '𝐘', 'Z': '𝐙',
-        'a': '𝐚', 'b': '𝐛', 'c': '𝐜', 'd': '𝐝', 'e': '𝐞', 'f': '𝐟', 'g': '𝐠',
-        'h': '𝐡', 'i': '𝐢', 'j': '𝐣', 'k': '𝐤', 'l': '𝐥', 'm': '𝐦', 'n': '𝐧',
-        'o': '𝐨', 'p': '𝐩', 'q': '𝐪', 'r': '𝐫', 's': '𝐬', 't': '𝐭', 'u': '𝐮',
-        'v': '𝐯', 'w': '𝐰', 'x': '𝐱', 'y': '𝐲', 'z': '𝐳'
-    }
-    return ''.join(bold_sans_serif.get(c, c) for c in text.upper())
 
 def parse_registration_args(args):
-    pattern = r'\'(.*?)\'|(\S+)'
-    matches = re.findall(pattern, args)
-    tokens = [match[0] if match[0] else match[1] for match in matches]
+    tokens = parse_quoted_args(args)
 
     name = tokens[0] if len(tokens) > 0 else None
     return name
@@ -60,13 +36,14 @@ def get_inventory_capacity(rank):
     }
     return rank_capacities.get(rank, 4)
 
-async def send_embed(ctx, title, description, color=discord.Color.blue(), image_url=None, next_step=None):
-    if next_step:
-        description = f"{description}\n\n- > **Próximo passo:** {next_step}"
-    embed = discord.Embed(title=title, description=description, color=color)
-    if image_url:
-        embed.set_image(url=image_url)
-    await ctx.send(embed=embed)
+def apply_layout(user_id, title, description):
+    return shared_apply_layout(
+        user_id,
+        title,
+        description,
+        default_title="╚ **╚═══━═─ ✦ ─═━═══╗**\n**╚╡ ⬥ {title} ⬥ ╞**",
+        default_description="╚───► *「{description}」*",
+    )
 
 def register_commands(bot):
     @bot.command(name='register', aliases=['reg', 'novo'])
@@ -82,18 +59,60 @@ def register_commands(bot):
             return
 
         image_url = ctx.message.attachments[0].url if ctx.message.attachments else None
-        registered_at = datetime.datetime.now().strftime("%Y-%m-%d")
         message_id = ctx.message.id if ctx.message.attachments else None
+        user_id = ctx.author.id
 
-        c.execute(
-            "INSERT INTO characters (name, image_url, user_id, registered_at, message_id) VALUES (?, ?, ?, ?, ?)",
-            (name, image_url, ctx.author.id, registered_at, message_id)
-        )
-        conn.commit()
-        await send_embed(ctx, "**__```𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌 𝐑𝐄𝐆𝐈𝐒𝐓𝐑𝐀𝐃𝐎!!!```__**",
-                         f'- > **Personagem __{name}__ registrado com sucesso!**',
-                         discord.Color.green(), image_url,
-                         "use `kill!details NomeDoPersonagem` para ver o perfil")
+        try:
+            # 1. Insert into characters (identity only)
+            c.execute(
+                "INSERT INTO characters (name, image_url, user_id, soul_tier) VALUES (?, ?, ?, 'Unknown')",
+                (name, image_url, user_id)
+            )
+            character_id = c.lastrowid
+            
+            # 2. Initialize progression
+            c.execute(
+                """INSERT INTO character_progression 
+                   (character_id, experience, level, rank, points_available, message_count, message_id)
+                   VALUES (?, 0, 1, 'F-', 0, 0, ?)""",
+                (character_id, message_id)
+            )
+            
+            # 3. Initialize race (Unknown)
+            c.execute(
+                """INSERT INTO character_race_progression 
+                   (character_id, race_name)
+                   VALUES (?, 'Unknown')""",
+                (character_id,)
+            )
+            
+            # 4. Initialize Reiryoku
+            c.execute(
+                """INSERT INTO character_reiryoku 
+                   (character_id, core_color, core_stage, reiryoku_base_pool, reiryoku_current)
+                   VALUES (?, 'Black', 'Dark Stage', 100, 100)""",
+                (character_id,)
+            )
+            
+            # 5. Initialize 10 Reiryoku skills
+            base_skills = ['Ten', 'Zetsu', 'Ren', 'Hatsu', 'Gyo', 'Shu', 'Ko', 'Ken', 'En', 'Ryu']
+            for skill in base_skills:
+                c.execute(
+                    """INSERT INTO character_reiryoku_skills 
+                       (character_id, skill_name, mastery_level, control_level, is_awakened)
+                       VALUES (?, ?, 0, 0, 0)""",
+                    (character_id, skill)
+                )
+            
+            conn.commit()
+            
+            await send_embed(ctx, "**__```𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌 𝐑𝐄𝐆𝐈𝐒𝐓𝐑𝐀𝐃𝐎 ✨```__**",
+                             f'- > **Personagem __{name}__ registrado com sucesso!**\n- > Soul tier: Unknown\n- > Reiryoku: Black Core (Dark Stage)\n- > Reiatsu: não definido (configure com /reiatsu)\n- > Reiryoku Skills: 10 técnicas-base desbloqueadas!',
+                             discord.Color.green(), image_url,
+                             "use `kill!details NomeDoPersonagem` para ver o perfil")
+        except sqlite3.IntegrityError as e:
+            conn.rollback()
+            await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > Erro ao registrar: {e}", discord.Color.red())
 
     @bot.command(name='remove', aliases=['rm'])
     async def remove(ctx, *, name: str):
@@ -106,14 +125,60 @@ def register_commands(bot):
 
     @bot.command(name='details', aliases=['det', 'perfil'])
     async def details(ctx, *, name: str):
-        c.execute("SELECT character_id, name, image_url, experience, level, points, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia, rank, message_count, registered_at FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (name, ctx.author.id))
+        c.execute("""
+             SELECT c.character_id, c.name, c.image_url,
+                 p.experience, p.level, p.points_available,
+                 p.forca, p.resistencia, p.agilidade, p.sentidos, p.vitalidade, p.inteligencia,
+                 p.rank, p.message_count, COALESCE(c.registered_at, p.created_at),
+                 r.race_name, r.race_stage, r.race_stage_level,
+                 re.core_color, re.core_stage, re.reiryoku_base_pool, re.reiryoku_current,
+                 ra.primary_category, ra.primary_category_level
+            FROM characters c
+            LEFT JOIN character_progression p ON c.character_id = p.character_id
+             LEFT JOIN character_race_progression r ON c.character_id = r.character_id
+             LEFT JOIN character_reiryoku re ON c.character_id = re.character_id
+             LEFT JOIN character_reiatsu_affinities ra ON c.character_id = ra.character_id
+            WHERE c.name COLLATE NOCASE=? AND c.user_id=?
+        """, (name, ctx.author.id))
         character = c.fetchone()
 
         if not character:
             await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Personagem não encontrado ou você não tem permissão para visualizá-lo.**", discord.Color.red())
             return
 
-        character_id, name, image_url, experience, level, points, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia, rank, message_count, registered_at = character
+        (
+            character_id,
+            name,
+            image_url,
+            experience,
+            level,
+            points,
+            forca,
+            resistencia,
+            agilidade,
+            sentidos,
+            vitalidade,
+            inteligencia,
+            rank,
+            message_count,
+            registered_at,
+            race_name,
+            race_stage,
+            race_stage_level,
+            core_color,
+            core_stage,
+            reiryoku_base_pool,
+            reiryoku_current,
+            reiatsu_category,
+            reiatsu_level,
+        ) = character
+
+        effective_forca = get_effective_attribute(character_id, "forca", forca)
+        effective_resistencia = get_effective_attribute(character_id, "resistencia", resistencia)
+        effective_agilidade = get_effective_attribute(character_id, "agilidade", agilidade)
+        effective_sentidos = get_effective_attribute(character_id, "sentidos", sentidos)
+        effective_vitalidade = get_effective_attribute(character_id, "vitalidade", vitalidade)
+        effective_inteligencia = get_effective_attribute(character_id, "inteligencia", inteligencia)
 
         c.execute("SELECT main_class, sub_class1, sub_class2 FROM characters_classes WHERE character_id=?", (character_id,))
         classes = c.fetchone()
@@ -123,6 +188,9 @@ def register_commands(bot):
         sub_class2 = classes[2] if classes and classes[2] else "𝐍𝐎𝐍𝐄"
 
         points_info = f"{points}" if points > 0 else "𝐍𝐎𝐍𝐄"
+        race_info = f"{race_name or '𝐍𝐎𝐍𝐄'} • {race_stage or '𝐁𝐀𝐒𝐄'} ({race_stage_level or 0}%)"
+        core_info = f"{core_color or 'Black'} Core • {core_stage or 'Dark Stage'} ({reiryoku_current or 0}/{reiryoku_base_pool or 0})"
+        reiatsu_info = f"{reiatsu_category or '𝐍𝐎𝐍𝐄'} (Nv. {reiatsu_level or 0})"
 
         c.execute("SELECT rebirth_count FROM rebirths WHERE character_name=? AND user_id=?", (name, ctx.author.id))
         rebirth_data = c.fetchone()
@@ -137,6 +205,12 @@ def register_commands(bot):
             f"● *{level}*\n"
             f"> **__𝐄𝐗𝐏__**\n"
             f"○ *{experience}/{xp_for_next_level(level)}*\n"
+            f"> **__𝐑𝐀𝐂𝐄__**\n"
+            f"● *{race_info}*\n"
+            f"> **__𝐑𝐄𝐈𝐀𝐓𝐒𝐔__**\n"
+            f"○ *{reiatsu_info}*\n"
+            f"> **__𝐂𝐎𝐑𝐄__**\n"
+            f"● *{core_info}*\n"
             f"> **__𝐂𝐋𝐀𝐒𝐒__**\n"
             f"● *{main_class}*\n"
             f"> **__𝐒𝐔𝐁𝐂𝐋𝐀𝐒𝐒__**\n"
@@ -161,12 +235,12 @@ def register_commands(bot):
             status_description = (
                 f"# — • ***[*** __𝐀𝐓𝐓𝐑𝐈𝐁𝐔𝐓𝐄𝐒__ ***]*** • —\n"
                 f"- ``` . . . ```\n"
-                f"- 𝐒𝐓𝐑𝐄𝐍𝐆𝐓𝐇 ***[*** ` {forca} ` ***]***\n"
-                f"- 𝐑𝐄𝐒𝐈𝐒𝐓𝐀𝐍𝐂𝐄 ***[*** ` {resistencia} ` ***]***\n"
-                f"- 𝐀𝐆𝐈𝐋𝐈𝐓𝐘 ***[*** ` {agilidade} ` ***]***\n"
-                f"- 𝐒𝐄𝐍𝐒𝐄𝐒 ***[*** ` {sentidos} ` ***]***\n"
-                f"- 𝐕𝐈𝐓𝐀𝐋𝐈𝐓𝐘 ***[*** ` {vitalidade} ` ***]***\n"
-                f"- 𝐈𝐍𝐓𝐄𝐋𝐋𝐈𝐆𝐄𝐍𝐂𝐄 ***[*** ` {inteligencia} ` ***]***\n"
+                f"- 𝐒𝐓𝐑𝐄𝐍𝐆𝐓𝐇 ***[*** ` {effective_forca} ` ***]***\n"
+                f"- 𝐑𝐄𝐒𝐈𝐒𝐓𝐀𝐍𝐂𝐄 ***[*** ` {effective_resistencia} ` ***]***\n"
+                f"- 𝐀𝐆𝐈𝐋𝐈𝐓𝐘 ***[*** ` {effective_agilidade} ` ***]***\n"
+                f"- 𝐒𝐄𝐍𝐒𝐄𝐒 ***[*** ` {effective_sentidos} ` ***]***\n"
+                f"- 𝐕𝐈𝐓𝐀𝐋𝐈𝐓𝐘 ***[*** ` {effective_vitalidade} ` ***]***\n"
+                f"- 𝐈𝐍𝐓𝐄𝐋𝐋𝐈𝐆𝐄𝐍𝐂𝐄 ***[*** ` {effective_inteligencia} ` ***]***\n"
                 f"- 𝐏𝐎𝐈𝐍𝐓𝐒 ***[*** ` {points} ` ***]***\n"
                 f"- ``` . . . ```\n"
                 f"● **__𝐑𝐄𝐁𝐈𝐑𝐓𝐇𝐒__** ***[*** ` {rebirth_count} ` ***]***\n"
@@ -326,6 +400,194 @@ def register_commands(bot):
                 else:
                     await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **Nenhum avatar definido para o personagem {name}. Para definir um avatar, forneça um link direto para a imagem ou faça o upload como um anexo ao executar este comando.**", discord.Color.red())
 
+    @bot.tree.command(name='register', description='Registra um novo personagem')
+    async def register_slash(interaction: discord.Interaction, name: str, image_url: str | None = None):
+        c.execute("SELECT 1 FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (name, interaction.user.id))
+        if c.fetchone():
+            embed = discord.Embed(
+                title="**__```𝐍𝐎𝐌𝐄 𝐄𝐌 𝐔𝐒𝐎```__**",
+                description="- > **Você já tem um personagem com esse nome.**",
+                color=discord.Color.red()
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        c.execute(
+            "INSERT INTO characters (name, image_url, user_id) VALUES (?, ?, ?)",
+            (name, image_url, interaction.user.id)
+        )
+        conn.commit()
+
+        embed = discord.Embed(
+            title="**__```𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌 𝐑𝐄𝐆𝐈𝐒𝐓𝐑𝐀𝐃𝐎!!!```__**",
+            description=f'- > **Personagem __{name}__ registrado com sucesso!**\n\n- > **Próximo passo:** use `kill!details {name}` para ver o perfil',
+            color=discord.Color.green()
+        )
+        if image_url:
+            embed.set_image(url=image_url)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @bot.tree.command(name='remove', description='Remove um personagem seu')
+    async def remove_slash(interaction: discord.Interaction, name: str):
+        c.execute("DELETE FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (name, interaction.user.id))
+        if c.rowcount == 0:
+            embed = discord.Embed(
+                title="**__```𝐄𝐑𝐑𝐎```__**",
+                description="- > **Personagem não encontrado ou você não tem permissão para removê-lo.**",
+                color=discord.Color.red()
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+        conn.commit()
+        embed = discord.Embed(
+            title="**__```𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌 𝐑𝐄𝐌𝐎𝐕𝐈𝐃𝐀```__**",
+            description=f'- > **Personagem __{name}__ removido com sucesso.**\n\n- > **Próximo passo:** use `kill!register` para criar outro',
+            color=discord.Color.green()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @bot.tree.command(name='details', description='Mostra detalhes do personagem')
+    async def details_slash(interaction: discord.Interaction, name: str):
+        c.execute(
+            """
+         SELECT c.character_id, c.name, c.image_url,
+             p.experience, p.level, p.points_available, p.rank,
+             p.forca, p.resistencia, p.agilidade, p.sentidos, p.vitalidade, p.inteligencia,
+             r.race_name, r.race_stage, r.race_stage_level,
+             re.core_color, re.core_stage, re.reiryoku_base_pool, re.reiryoku_current,
+             ra.primary_category, ra.primary_category_level
+            FROM characters c
+            LEFT JOIN character_progression p ON c.character_id = p.character_id
+         LEFT JOIN character_race_progression r ON c.character_id = r.character_id
+         LEFT JOIN character_reiryoku re ON c.character_id = re.character_id
+         LEFT JOIN character_reiatsu_affinities ra ON c.character_id = ra.character_id
+            WHERE c.name COLLATE NOCASE=? AND c.user_id=?
+            """,
+            (name, interaction.user.id)
+        )
+        row = c.fetchone()
+        if not row:
+            embed = discord.Embed(
+                title="**__```𝐄𝐑𝐑𝐎```__**",
+                description="- > **Personagem não encontrado ou você não tem permissão para visualizá-lo.**",
+                color=discord.Color.red()
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        (
+            character_id,
+            char_name,
+            image_url,
+            experience,
+            level,
+            points,
+            rank,
+            forca,
+            resistencia,
+            agilidade,
+            sentidos,
+            vitalidade,
+            inteligencia,
+            race_name,
+            race_stage,
+            race_stage_level,
+            core_color,
+            core_stage,
+            reiryoku_base_pool,
+            reiryoku_current,
+            reiatsu_category,
+            reiatsu_level,
+        ) = row
+
+        effective_forca = get_effective_attribute(character_id, "forca", forca)
+        effective_resistencia = get_effective_attribute(character_id, "resistencia", resistencia)
+        effective_agilidade = get_effective_attribute(character_id, "agilidade", agilidade)
+        effective_sentidos = get_effective_attribute(character_id, "sentidos", sentidos)
+        effective_vitalidade = get_effective_attribute(character_id, "vitalidade", vitalidade)
+        effective_inteligencia = get_effective_attribute(character_id, "inteligencia", inteligencia)
+        c.execute("SELECT main_class, sub_class1, sub_class2 FROM characters_classes WHERE character_id=?", (character_id,))
+        classes = c.fetchone() or (None, None, None)
+        main_class, sub_class1, sub_class2 = classes
+
+        points_info = f"{points}" if points > 0 else "𝐍𝐎𝐍𝐄"
+        race_info = f"{race_name or '𝐍𝐎𝐍𝐄'} • {race_stage or '𝐁𝐀𝐒𝐄'} ({race_stage_level or 0}%)"
+        core_info = f"{core_color or 'Black'} Core • {core_stage or 'Dark Stage'} ({reiryoku_current or 0}/{reiryoku_base_pool or 0})"
+        reiatsu_info = f"{reiatsu_category or '𝐍𝐎𝐍𝐄'} (Nv. {reiatsu_level or 0})"
+
+        description = (
+            f"``` 𝐈𝐍𝐅𝐎𝐑𝐌𝐀𝐓𝐈𝐎𝐍 ```- — ◇\n"
+            f"> **__𝐍𝐀𝐌𝐄__**\n"
+            f"● *{char_name}*\n"
+            f"> **__𝐋𝐄𝐕𝐄𝐋__**\n"
+            f"● *{level}*\n"
+            f"> **__𝐄𝐗𝐏__**\n"
+            f"○ *{experience}*\n"
+            f"> **__𝐑𝐀𝐂𝐄__**\n"
+            f"● *{race_info}*\n"
+            f"> **__𝐑𝐄𝐈𝐀𝐓𝐒𝐔__**\n"
+            f"○ *{reiatsu_info}*\n"
+            f"> **__𝐂𝐎𝐑𝐄__**\n"
+            f"● *{core_info}*\n"
+            f"> **__𝐂𝐋𝐀𝐒𝐒__**\n"
+            f"● *{main_class or '𝐍𝐎𝐍𝐄'}*\n"
+            f"> **__𝐒𝐔𝐁𝐂𝐋𝐀𝐒𝐒__**\n"
+            f"○ *{sub_class1 or '𝐍𝐎𝐍𝐄'}, {sub_class2 or '𝐍𝐎𝐍𝐄'}*\n\n"
+            f"- — *[* **𝐏𝐎𝐈𝐍𝐓𝐒: ** ` {points_info} ` *]* —\n"
+            f"● ○ ***[*** `𝐑𝐀𝐍𝐊 {rank}` ***]*** ○ ●"
+        )
+
+        embed = discord.Embed(title="``` 𝔻𝔼𝕿𝔸𝕴𝕷𝕾 ```", description=description, color=discord.Color.dark_grey())
+        if image_url:
+            embed.set_image(url=image_url)
+
+        owner_id = interaction.user.id
+        view = discord.ui.View()
+
+        button_status = discord.ui.Button(label="𝐒𝐓𝐀𝐓𝐔𝐒", style=discord.ButtonStyle.secondary, custom_id=f"status_{interaction.user.id}")
+        button_inventory = discord.ui.Button(label="𝐈𝐍𝐕𝐄𝐍𝐓𝐎𝐑𝐘", style=discord.ButtonStyle.secondary, custom_id=f"inventory_{interaction.user.id}")
+        button_techniques = discord.ui.Button(label="𝐓𝐄𝐂𝐇𝐍𝐈𝐐𝐔𝐄𝐒", style=discord.ButtonStyle.secondary, custom_id=f"techniques_{interaction.user.id}")
+
+        async def button_status_callback(interaction: discord.Interaction):
+            if interaction.user.id != owner_id:
+                await interaction.response.send_message("- > **Você não tem permissão.**", ephemeral=True)
+                return
+
+            status_description = (
+                f"# — • ***[*** __𝐀𝐓𝐓𝐑𝐈𝐁𝐔𝐓𝐄𝐒__ ***]*** • —\n"
+                f"- ``` . . . ```\n"
+                f"- 𝐒𝐓𝐑𝐄𝐍𝐆𝐓𝐇 ***[*** ` {effective_forca} ` ***]***\n"
+                f"- 𝐑𝐄𝐒𝐈𝐒𝐓𝐀𝐍𝐂𝐄 ***[*** ` {effective_resistencia} ` ***]***\n"
+                f"- 𝐀𝐆𝐈𝐋𝐈𝐓𝐘 ***[*** ` {effective_agilidade} ` ***]***\n"
+                f"- 𝐒𝐄𝐍𝐒𝐄𝐒 ***[*** ` {effective_sentidos} ` ***]***\n"
+                f"- 𝐕𝐈𝐓𝐀𝐋𝐈𝐓𝐘 ***[*** ` {effective_vitalidade} ` ***]***\n"
+                f"- 𝐈𝐍𝐓𝐄𝐋𝐋𝐈𝐆𝐄𝐍𝐂𝐄 ***[*** ` {effective_inteligencia} ` ***]***\n"
+                f"- ``` . . . ```"
+            )
+
+            status_embed = discord.Embed(title="𝕾𝖙𝖆𝖋𝖚𝖘", description=status_description, color=discord.Color.dark_grey())
+
+            button_back = discord.ui.Button(label="𝐃𝐄𝐓𝐀𝐈𝐋𝐒", style=discord.ButtonStyle.secondary)
+
+            async def button_back_callback(interaction: discord.Interaction):
+                if interaction.user.id != owner_id:
+                    await interaction.response.send_message("- > **Você não tem permissão.**", ephemeral=True)
+                    return
+                await interaction.response.edit_message(embed=embed, view=view)
+
+            button_back.callback = button_back_callback
+            back_view = discord.ui.View()
+            back_view.add_item(button_back)
+
+            await interaction.response.edit_message(embed=status_embed, view=back_view)
+
+        button_status.callback = button_status_callback
+        view.add_item(button_status)
+        view.add_item(button_inventory)
+        view.add_item(button_techniques)
+
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
     @bot.command(name='rename', aliases=['ren'])
     async def rename(ctx, *, args: str):
         match = re.match(r"'(.+?)'\s*'(.+?)'", args)
@@ -371,7 +633,7 @@ def register_commands(bot):
             )
 
     @bot.command(name='list', aliases=['chars', 'meus'])
-    async def list_characters(ctx, member: discord.Member = None):
+    async def list_characters(ctx, member: Optional[discord.Member] = None):
         user_id = member.id if member else ctx.author.id
         display_name = member.display_name if member else ctx.author.display_name
 
@@ -381,7 +643,12 @@ def register_commands(bot):
             await send_embed(ctx, "**__```𝐀𝐂𝐄𝐒𝐒𝐎 𝐍𝐄𝐆𝐀𝐃𝐎```__**", "- > **Os personagens deste usuário são privados.**", discord.Color.red())
             return
 
-        c.execute("SELECT name, image_url, message_count, registered_at FROM characters WHERE user_id=?", (user_id,))
+        c.execute("""
+            SELECT c.name, c.image_url, p.message_count, COALESCE(c.registered_at, p.created_at)
+            FROM characters c
+            LEFT JOIN character_progression p ON c.character_id = p.character_id
+            WHERE c.user_id=?
+        """, (user_id,))
         characters = c.fetchall()
         if not characters:
             await send_embed(ctx, "**__```𝐍𝐄𝐍𝐇𝐔𝐌 𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌 𝐄𝐍𝐂𝐎𝐍𝐓𝐑𝐀𝐃𝐎```__**", "- > **Nenhum personagem registrado.**", discord.Color.red())
@@ -457,11 +724,21 @@ def register_commands(bot):
                 await interaction.response.send_message("Invalid page number. Please enter a valid integer.", ephemeral=True)
 
     @bot.command(name='pendencias', aliases=['todo', 'check'])
-    async def pendencias(ctx, *, name: str = None):
+    async def pendencias(ctx, *, name: Optional[str] = None):
         if name:
-            c.execute("SELECT character_id, name, points, level, limit_break, rank FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (name, ctx.author.id))
+            c.execute("""
+                SELECT c.character_id, c.name, p.points_available, p.level, p.limit_break, p.rank
+                FROM characters c
+                JOIN character_progression p ON c.character_id = p.character_id
+                WHERE c.name COLLATE NOCASE=? AND c.user_id=?
+            """, (name, ctx.author.id))
         else:
-            c.execute("SELECT character_id, name, points, level, limit_break, rank FROM characters WHERE user_id=? ORDER BY level DESC LIMIT 1", (ctx.author.id,))
+            c.execute("""
+                SELECT c.character_id, c.name, p.points_available, p.level, p.limit_break, p.rank
+                FROM characters c
+                JOIN character_progression p ON c.character_id = p.character_id
+                WHERE c.user_id=? ORDER BY p.level DESC LIMIT 1
+            """, (ctx.author.id,))
 
         character = c.fetchone()
         if not character:
@@ -494,3 +771,7 @@ def register_commands(bot):
 
         texto = "\n".join(pendencias_lista)
         await send_embed(ctx, "**__```𝐏𝐄𝐍𝐃𝐄̂𝐍𝐂𝐈𝐀𝐒 𝐃𝐎 𝐏𝐄𝐑𝐒𝐎𝐍𝐀𝐆𝐄𝐌```__**", f"- > **{char_name}**\n\n{texto}", discord.Color.orange(), next_step="use `kill!menu` para atalhos rápidos")
+
+
+async def setup(bot):
+    register_commands(bot)

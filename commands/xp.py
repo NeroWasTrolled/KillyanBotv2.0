@@ -3,17 +3,13 @@ import random
 import discord
 import re
 import math  
-from logs import Logs
+from commands.logs import Logs
 from discord.ext import commands
+from database.connection import create_connection
+from utils.common import sanitize_input, send_embed
 
-conn = sqlite3.connect('characters.db')
+conn = create_connection()
 c = conn.cursor()
-c.execute("PRAGMA foreign_keys = ON")
-
-def sanitize_input(input_str):
-    if not re.match(r"^[a-zA-Z0-9\s]*$", input_str):
-        return False
-    return True
 
 MAX_LEVEL = 1000
 POINTS_PER_LEVEL = 3
@@ -31,12 +27,6 @@ RANK_UP_LEVELS = {
     180: 'B-', 195: 'B', 210: 'B+', 225: 'A-', 240: 'A', 255: 'A+',
     270: 'S', 285: 'S+', 300: 'SS', 315: 'SS+', 330: 'SSS', 345: 'SSS+', 360: 'Z'
 }
-
-async def send_embed(ctx, title, description, color=discord.Color.blue(), next_step=None):
-    if next_step:
-        description = f"{description}\n\n- > **Próximo passo:** {next_step}"
-    embed = discord.Embed(title=title, description=description, color=color)
-    await ctx.send(embed=embed)
 
 def xp_for_next_level(level):
     base_xp = 100  
@@ -65,56 +55,101 @@ def set_random_limit_break(current_level, rebirth_count):
     next_limit_break = current_level + distance_between_limits
     return next_limit_break
 
-def update_experience_and_level(character_name, user_id, xp_to_add):
-    c.execute("SELECT experience, level, points, limit_break, rank, xp_multiplier FROM characters WHERE name=? AND user_id=?", (character_name, user_id))
-    character = c.fetchone()
+# ============================================================================
+# HELPERS PARA NOVO SCHEMA
+# ============================================================================
 
-    if not character:
+def get_character_by_name_and_user(character_name, user_id):
+    """Helper para obter character_id pelo nome e user_id"""
+    c.execute("SELECT character_id FROM characters WHERE name = ? COLLATE NOCASE AND user_id = ?", 
+              (character_name, user_id))
+    result = c.fetchone()
+    return result[0] if result else None
+
+def get_character_progression(character_id):
+    """Helper para obter todos os dados de progressão"""
+    c.execute("SELECT * FROM character_progression WHERE character_id = ?", (character_id,))
+    return c.fetchone()
+
+def update_experience_and_level(character_name, user_id, xp_to_add):
+    """Atualizar XP e level - NOVO: usa character_progression"""
+    
+    character_id = get_character_by_name_and_user(character_name, user_id)
+    if not character_id:
+        return None, None, None, 0, False
+    
+    # Buscar dados de progressão (agora em character_progression)
+    c.execute("""
+        SELECT experience, level, points_available, limit_break, rank, xp_multiplier
+        FROM character_progression
+        WHERE character_id = ?
+    """, (character_id,))
+    
+    prog_data = c.fetchone()
+    if not prog_data:
         return None, None, None, 0, False
 
-    experience, level, points, limit_break, rank, xp_multiplier = character
+    experience, level, points, limit_break, rank, xp_multiplier = prog_data
 
-    # Verifica se o personagem já atingiu o nível máximo
+    # Verifica se já atingiu nível máximo
     if level >= MAX_LEVEL:
-        return experience, level, points, 0, True  # Não evolui além do nível 1000
+        return experience, level, points, 0, True
 
     xp_to_add *= xp_multiplier
     new_experience = experience + xp_to_add
     levels_gained = 0
 
-    # Loop para adicionar níveis, limitando o nível máximo
+    # Loop para adicionar níveis
     while new_experience >= xp_for_next_level(level) and level < MAX_LEVEL:
         new_experience -= xp_for_next_level(level)
         level += 1
-        points += POINTS_PER_LEVEL  # Sempre adiciona exatamente 3 pontos por nível
+        points += POINTS_PER_LEVEL
         levels_gained += 1
 
-        # Se atingiu o nível máximo, para
         if level >= MAX_LEVEL:
-            level = MAX_LEVEL  # Garante que não ultrapassa o nível 1000
-            new_experience = 0  # Zera o XP excedente
+            level = MAX_LEVEL
+            new_experience = 0
             break
 
-        # Se atingir o limit break
         if level >= limit_break:
             new_experience = 0
             break
 
-    # Atualiza o XP, nível e pontos
-    c.execute("UPDATE characters SET experience=?, level=?, points=? WHERE name=? AND user_id=?", 
-              (new_experience, level, points, character_name, user_id))
+    # UPDATE para character_progression (não characters!)
+    c.execute("""
+        UPDATE character_progression 
+        SET experience=?, level=?, points_available=?, updated_at=CURRENT_TIMESTAMP
+        WHERE character_id=?
+    """, (new_experience, level, points, character_id))
+    
+    # Atualizar rank se mudou
+    for lvl, new_rank in RANK_UP_LEVELS.items():
+        if level >= lvl and new_rank != rank:
+            update_rank_and_attributes(character_name, user_id, new_rank)
+            break
+    
     conn.commit()
 
     return new_experience, level, points, levels_gained, level >= limit_break
 
 def update_rank_and_attributes(character_name, user_id, new_rank):
-    new_bonus = RANKS.get(new_rank, 0)
-    c.execute("SELECT rank, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia FROM characters WHERE name=? AND user_id=?", 
-              (character_name, user_id))
-    character = c.fetchone()
+    """Atualizar rank e atributos - NOVO: usa character_progression"""
+    
+    character_id = get_character_by_name_and_user(character_name, user_id)
+    if not character_id:
+        return
 
-    if character:
-        current_rank, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia = character
+    new_bonus = RANKS.get(new_rank, 0)
+    
+    c.execute("""
+        SELECT rank, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia
+        FROM character_progression
+        WHERE character_id = ?
+    """, (character_id,))
+    
+    prog_data = c.fetchone()
+    if prog_data:
+        current_rank, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia = prog_data
         current_bonus = RANKS.get(current_rank, 0)
 
         adjusted_attributes = {
@@ -126,75 +161,98 @@ def update_rank_and_attributes(character_name, user_id, new_rank):
             'inteligencia': inteligencia - current_bonus + new_bonus
         }
 
-        c.execute('''UPDATE characters SET rank=?, forca=?, resistencia=?, agilidade=?, sentidos=?, vitalidade=?, inteligencia=?
-                     WHERE name=? AND user_id=?''',
-                  (new_rank, adjusted_attributes['forca'], adjusted_attributes['resistencia'], 
-                   adjusted_attributes['agilidade'], adjusted_attributes['sentidos'], 
-                   adjusted_attributes['vitalidade'], adjusted_attributes['inteligencia'],
-                   character_name, user_id))
+        c.execute("""
+            UPDATE character_progression
+            SET rank=?, forca=?, resistencia=?, agilidade=?, sentidos=?, vitalidade=?, inteligencia=?,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE character_id=?
+        """,
+            (new_rank, adjusted_attributes['forca'], adjusted_attributes['resistencia'],
+             adjusted_attributes['agilidade'], adjusted_attributes['sentidos'],
+             adjusted_attributes['vitalidade'], adjusted_attributes['inteligencia'],
+             character_id))
         conn.commit()
 
 def set_level(character_name, user_id, new_level):
+    """Definir nível específico - NOVO: usa character_progression"""
+    
     if new_level > MAX_LEVEL:
-        new_level = MAX_LEVEL  # Limita o nível máximo
+        new_level = MAX_LEVEL
+
+    character_id = get_character_by_name_and_user(character_name, user_id)
+    if not character_id:
+        return
 
     c.execute("SELECT rebirth_count FROM rebirths WHERE character_name=? AND user_id=?", (character_name, user_id))
     rebirth_data = c.fetchone()
-    rebirth_points = rebirth_data[0] * 5 if rebirth_data else 0  
+    rebirth_points = rebirth_data[0] * 5 if rebirth_data else 0
 
-    c.execute("SELECT main_class, sub_class1, sub_class2 FROM characters_classes WHERE character_id=(SELECT character_id FROM characters WHERE name=? AND user_id=?)", 
-              (character_name, user_id))
+    c.execute("""
+        SELECT main_class, sub_class1, sub_class2 FROM characters_classes
+        WHERE character_id = ?
+    """, (character_id,))
     classes = c.fetchone()
 
     class_points = calculate_class_attributes(*classes) if classes else [0, 0, 0, 0, 0, 0]
 
-    c.execute("SELECT level FROM characters WHERE name=? AND user_id=?", (character_name, user_id))
-    character = c.fetchone()
+    new_total_points = max((new_level - 1) * POINTS_PER_LEVEL, 0) + rebirth_points
 
-    if character:
-        new_total_points = max((new_level - 1) * POINTS_PER_LEVEL, 0) + rebirth_points  
+    new_rank = None
+    for lvl, rank in sorted(RANK_UP_LEVELS.items(), reverse=True):
+        if new_level >= lvl:
+            new_rank = rank
+            break
 
-        new_rank = None
-        for lvl, rank in sorted(RANK_UP_LEVELS.items(), reverse=True):
-            if new_level >= lvl:
-                new_rank = rank
-                break
-
+    if new_rank:
         new_rank_bonus = RANKS.get(new_rank, 0)
-        updated_attributes = [new_rank_bonus + class_points[i] for i in range(6)] 
+        updated_attributes = [new_rank_bonus + class_points[i] for i in range(6)]
 
-        c.execute('''UPDATE characters 
-                     SET experience=?, level=?, points=?, rank=?, forca=?, resistencia=?, agilidade=?, sentidos=?, vitalidade=?, inteligencia=?
-                     WHERE name=? AND user_id=?''',
-                  (0, new_level, new_total_points, new_rank, 
-                   updated_attributes[0], updated_attributes[1], updated_attributes[2], 
-                   updated_attributes[3], updated_attributes[4], updated_attributes[5], 
-                   character_name, user_id))
+        c.execute("""
+            UPDATE character_progression
+            SET experience=?, level=?, points_available=?, rank=?, forca=?, resistencia=?, 
+                agilidade=?, sentidos=?, vitalidade=?, inteligencia=?, updated_at=CURRENT_TIMESTAMP
+            WHERE character_id=?
+        """,
+            (0, new_level, new_total_points, new_rank,
+             updated_attributes[0], updated_attributes[1], updated_attributes[2],
+             updated_attributes[3], updated_attributes[4], updated_attributes[5],
+             character_id))
         conn.commit()
 
         return 0, new_level, new_total_points, new_rank
     return None, None, None, None
 
 def reset_character(character_name, user_id, bonus_points, xp_multiplier):
+    """Reset character para rebirth - NOVO: usa character_progression"""
     initial_level = 1
     initial_experience = 0
     initial_rank = 'F-'
     initial_attributes = [1, 1, 1, 1, 1, 1]
 
-    c.execute("SELECT main_class, sub_class1, sub_class2 FROM characters_classes WHERE character_id=(SELECT character_id FROM characters WHERE name=? AND user_id=?)", 
-              (character_name, user_id))
+    character_id = get_character_by_name_and_user(character_name, user_id)
+    if not character_id:
+        return
+
+    c.execute("""
+        SELECT main_class, sub_class1, sub_class2 FROM characters_classes
+        WHERE character_id = ?
+    """, (character_id,))
     classes = c.fetchone()
     bonus_attributes = calculate_class_attributes(*classes) if classes else [0] * 6
 
     final_attributes = [x + y for x, y in zip(initial_attributes, bonus_attributes)]
 
-    c.execute('''UPDATE characters
-                 SET level=?, experience=?, points=?, rank=?, forca=?, resistencia=?, agilidade=?, sentidos=?, vitalidade=?, inteligencia=?, xp_multiplier=?
-                 WHERE name=? AND user_id=?''',
-              (initial_level, initial_experience, bonus_points, initial_rank, 
-               final_attributes[0], final_attributes[1], final_attributes[2], 
-               final_attributes[3], final_attributes[4], final_attributes[5], 
-               xp_multiplier, character_name, user_id))
+    c.execute("""
+        UPDATE character_progression
+        SET level=?, experience=?, points_available=?, rank=?, forca=?, resistencia=?, 
+            agilidade=?, sentidos=?, vitalidade=?, inteligencia=?, xp_multiplier=?,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE character_id=?
+    """,
+        (initial_level, initial_experience, bonus_points, initial_rank,
+         final_attributes[0], final_attributes[1], final_attributes[2],
+         final_attributes[3], final_attributes[4], final_attributes[5],
+         xp_multiplier, character_id))
     conn.commit()
 
 def calculate_class_attributes(main_class, sub_class1, sub_class2):
@@ -321,21 +379,36 @@ async def setlevel(ctx, character_name: str, level: int):
 async def evolve(ctx, character_name: str):
     user_id = await get_user_id_from_name(ctx, character_name)
     if user_id:
-        c.execute("SELECT level, limit_break, rank FROM characters WHERE name=? AND user_id=?", (character_name, user_id))
+        character_id = get_character_by_name_and_user(character_name, user_id)
+        c.execute("""
+            SELECT level, limit_break, rank
+            FROM character_progression
+            WHERE character_id=?
+        """, (character_id,))
         character = c.fetchone()
         if character:
             level, limit_break, rank = character
             rebirth_count = get_rebirth_data(character_name, user_id)
             if level >= limit_break:
                 next_limit_break = set_random_limit_break(level, rebirth_count)
-                c.execute("UPDATE characters SET limit_break=? WHERE name=? AND user_id=?", (next_limit_break, character_name, user_id)) 
+                c.execute(
+                    "UPDATE character_progression SET limit_break=?, updated_at=CURRENT_TIMESTAMP WHERE character_id=?",
+                    (next_limit_break, character_id)
+                )
                 conn.commit()
                 await send_embed(ctx, "**__```𝐋𝐈𝐌𝐈𝐓𝐀𝐃𝐎𝐑 𝐐𝐔𝐄𝐁𝐑𝐀𝐃𝐎```__**", f'- > **__{character_name}__ quebrou o limitador de nível e pode continuar evoluindo! Próximo limitador em __{next_limit_break}__.**', discord.Color.green(), next_step="use `kill!xp` para continuar evoluindo")
             elif level in RANK_UP_LEVELS and RANK_UP_LEVELS[level] != rank:
                 new_rank = RANK_UP_LEVELS[level]
                 update_rank_and_attributes(character_name, user_id, new_rank)
                 next_limit_break = set_random_limit_break(level, rebirth_count)
-                c.execute("UPDATE characters SET experience=?, rank=?, limit_break=? WHERE name=? AND user_id=?", (0, new_rank, next_limit_break, character_name, user_id)) 
+                c.execute(
+                    """
+                    UPDATE character_progression
+                    SET experience=?, rank=?, limit_break=?, updated_at=CURRENT_TIMESTAMP
+                    WHERE character_id=?
+                    """,
+                    (0, new_rank, next_limit_break, character_id)
+                )
                 conn.commit()
                 await send_embed(ctx, "**__```𝐑𝐀𝐍𝐊 𝐄𝐕𝐎𝐋𝐔𝐈́𝐃𝐎```__**", f'- > **🎉 __{character_name}__ evoluiu para o rank __{new_rank}__! Próximo limitador em __{next_limit_break}__.**', discord.Color.green(), next_step="use `kill!details NomeDoPersonagem` para ver os novos atributos")
             else:
@@ -371,7 +444,8 @@ async def rebirth(ctx, character_name: str, rebirth_type: str = None):
 
     user_id = await get_user_id_from_name(ctx, character_name)
     if user_id:
-        c.execute("SELECT level FROM characters WHERE name=? AND user_id=?", (character_name, user_id))
+        character_id = get_character_by_name_and_user(character_name, user_id)
+        c.execute("SELECT level FROM character_progression WHERE character_id=?", (character_id,))
         character = c.fetchone()
         if character:
             level = character[0]
@@ -425,7 +499,12 @@ async def points(ctx, character_name: str, attribute: str, points: int):
         await send_embed(ctx, "**__```𝐀𝐓𝐑𝐈𝐁𝐔𝐓𝐎 𝐈𝐍𝐕𝐀́𝐋𝐈𝐃𝐎```__**", f'**Atributo inválido. Os atributos válidos são: {", ".join(valid_attributes)}.**', discord.Color.red())
         return
 
-    c.execute("SELECT points, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (character_name, ctx.author.id))
+    character_id = get_character_by_name_and_user(character_name, ctx.author.id)
+    c.execute("""
+        SELECT points_available, forca, resistencia, agilidade, sentidos, vitalidade, inteligencia
+        FROM character_progression
+        WHERE character_id=?
+    """, (character_id,))
     character = c.fetchone()
     if not character:
         await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f'**Personagem __"{character_name}"__ não encontrado ou você não tem permissão para distribuir pontos.**', discord.Color.red())
@@ -440,9 +519,12 @@ async def points(ctx, character_name: str, attribute: str, points: int):
     updated_attributes[attribute.lower()] += points
     current_points -= points
 
-    c.execute('''UPDATE characters SET points=?, forca=?, resistencia=?, agilidade=?, sentidos=?, vitalidade=?, inteligencia=?
-                 WHERE name COLLATE NOCASE=? AND user_id=?''',
-              (current_points, *updated_attributes.values(), character_name, ctx.author.id))
+    c.execute('''
+        UPDATE character_progression
+        SET points_available=?, forca=?, resistencia=?, agilidade=?, sentidos=?, vitalidade=?, inteligencia=?,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE character_id=?
+    ''', (current_points, *updated_attributes.values(), character_id))
     conn.commit()
 
     await send_embed(ctx, "**__```𝐏𝐎𝐍𝐓𝐎𝐒 𝐃𝐈𝐒𝐓𝐑𝐈𝐁𝐔𝐈́𝐃𝐎𝐒```__**", f'**🎉 __{points}__ pontos distribuídos para __{attribute}__ de __{character_name}__. Pontos restantes: __{current_points}__.**', discord.Color.green(), next_step="use `kill!details NomeDoPersonagem` para acompanhar o build")
