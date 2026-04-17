@@ -55,15 +55,16 @@ PANEL_BORDER = (255, 190, 102, 210)
 # Valores maiores em Y vão para baixo. Valores menores em Y vão para cima.
 ABILITY_TEXT_X = 520
 ABILITY_TEXT_Y = 80
-ABILITY_VALUE_X = 710
 
 RANK_TEXT_X = 520
 RANK_TEXT_Y = 185
-RANK_VALUE_X = 610
 
 PASSIVE_TEXT_X = 520
 PASSIVE_TEXT_Y = 290
-PASSIVE_VALUE_X = 715
+
+# Coluna única para os valores de habilidade/rank/passiva.
+# Isso evita desalinhamento visual entre linhas com rótulos de tamanhos diferentes.
+INFO_VALUE_COLUMN_X = 840
 
 TEXT_VALUE_GAP = 14
 
@@ -213,13 +214,13 @@ async def generate_ability_image(character_name, technique_name, passive, rank, 
     rank = (rank or "F-").upper()
 
     draw.text((sx(ABILITY_TEXT_X), sy(ABILITY_TEXT_Y)), "HABILIDADE:", font=label_font, fill=LABEL_COLOR)
-    draw.text((sx(ABILITY_VALUE_X), sy(ABILITY_TEXT_Y)), technique_name, font=value_font, fill=accent_color)
+    draw.text((sx(INFO_VALUE_COLUMN_X), sy(ABILITY_TEXT_Y)), technique_name, font=value_font, fill=accent_color)
 
     draw.text((sx(RANK_TEXT_X), sy(RANK_TEXT_Y)), "RANK:", font=label_font, fill=LABEL_COLOR)
-    draw.text((sx(RANK_VALUE_X), sy(RANK_TEXT_Y)), rank, font=value_font, fill=accent_color)
+    draw.text((sx(INFO_VALUE_COLUMN_X), sy(RANK_TEXT_Y)), rank, font=value_font, fill=accent_color)
 
     draw.text((sx(PASSIVE_TEXT_X), sy(PASSIVE_TEXT_Y)), "PASSIVA:", font=label_font, fill=LABEL_COLOR)
-    draw.text((sx(PASSIVE_VALUE_X), sy(PASSIVE_TEXT_Y)), passive, font=value_font, fill=accent_color)
+    draw.text((sx(INFO_VALUE_COLUMN_X), sy(PASSIVE_TEXT_Y)), passive, font=value_font, fill=accent_color)
 
     max_description_width = sx(DESCRIPTION_MAX_WIDTH)
     wrapped_description = wrap_text(description, description_font, max_description_width, draw)
