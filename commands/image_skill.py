@@ -64,7 +64,7 @@ PASSIVE_TEXT_Y = 290
 
 # Coluna única para os valores de habilidade/rank/passiva.
 # Isso evita desalinhamento visual entre linhas com rótulos de tamanhos diferentes.
-INFO_VALUE_COLUMN_X = 1045
+INFO_VALUE_COLUMN_X = 840
 
 TEXT_VALUE_GAP = 14
 
