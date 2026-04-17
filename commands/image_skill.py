@@ -53,13 +53,13 @@ PANEL_BORDER = (255, 190, 102, 210)
 # Se quiser mover algo, altere estes números primeiro.
 # Valores maiores em X vão para a direita. Valores menores em X vão para a esquerda.
 # Valores maiores em Y vão para baixo. Valores menores em Y vão para cima.
-ABILITY_TEXT_X = 520
+ABILITY_TEXT_X = 650
 ABILITY_TEXT_Y = 80
 
-RANK_TEXT_X = 520
+RANK_TEXT_X = 650
 RANK_TEXT_Y = 185
 
-PASSIVE_TEXT_X = 520
+PASSIVE_TEXT_X = 650
 PASSIVE_TEXT_Y = 290
 
 # Coluna única para os valores de habilidade/rank/passiva.
