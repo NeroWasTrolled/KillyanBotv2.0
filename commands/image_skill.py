@@ -53,35 +53,53 @@ PANEL_BORDER = (255, 190, 102, 210)
 # Se quiser mover algo, altere estes números primeiro.
 # Valores maiores em X vão para a direita. Valores menores em X vão para a esquerda.
 # Valores maiores em Y vão para baixo. Valores menores em Y vão para cima.
-ABILITY_TEXT_X = 650
-ABILITY_TEXT_Y = 80
+ABILITY_TEXT_X = 610
+ABILITY_TEXT_Y = 150
 
-RANK_TEXT_X = 650
-RANK_TEXT_Y = 185
+RANK_TEXT_X = 610
+RANK_TEXT_Y = 255
 
-PASSIVE_TEXT_X = 650
-PASSIVE_TEXT_Y = 290
+PASSIVE_TEXT_X = 610
+PASSIVE_TEXT_Y = 360
 
-# Coluna única para os valores de habilidade/rank/passiva.
-# Isso evita desalinhamento visual entre linhas com rótulos de tamanhos diferentes.
-INFO_VALUE_COLUMN_X = 840
+# Posição dos valores (texto após os labels). Ajuste só estes para mover os textos.
+ABILITY_VALUE_X = 746
+ABILITY_VALUE_Y = 150
+
+RANK_VALUE_X = 746
+RANK_VALUE_Y = 255
+
+PASSIVE_VALUE_X = 806
+PASSIVE_VALUE_Y = 360
+
+ABILITY_GROUP_TEXT_X = 146
+ABILITY_GROUP_TEXT_Y = 48
+
+RACE_TEXT_X = 120
+RACE_TEXT_Y = 834
+RACE_VALUE_X = 250
+RACE_VALUE_Y = 834
+
+# Labels editaveis do banner.
+ABILITY_GROUP_LABEL_TEXT = "HABILIDADE"
+RACE_LABEL_TEXT = "Raça"
 
 TEXT_VALUE_GAP = 14
 
-ABILITY_IMAGE_X = 22
-ABILITY_IMAGE_Y = 28
-ABILITY_IMAGE_W = 235
-ABILITY_IMAGE_H = 235
-ABILITY_IMAGE_RADIUS = 16
+ABILITY_IMAGE_X = 86
+ABILITY_IMAGE_Y = 156
+ABILITY_IMAGE_W = 332
+ABILITY_IMAGE_H = 288
+ABILITY_IMAGE_RADIUS = 20
 
-XP_TEXT_RIGHT_X = 1610
-XP_TEXT_Y = 545
+XP_TEXT_RIGHT_X = 1538
+XP_TEXT_Y = 496
 
-MASTERY_TEXT_RIGHT_X = 1610
-MASTERY_TEXT_Y = 902
+MASTERY_TEXT_RIGHT_X = 1488
+MASTERY_TEXT_Y = 844
 
 DESCRIPTION_X = 120
-DESCRIPTION_Y = 650
+DESCRIPTION_Y = 528
 DESCRIPTION_MAX_WIDTH = 1380
 
 conn = create_connection()
@@ -169,6 +187,14 @@ def draw_right_aligned_text(draw, text, right_x, y, font, fill):
     draw.text((right_x - text_width, y), text, font=font, fill=fill)
 
 
+def draw_text_grow_to_right(draw, text, base_text, right_x, y, font, fill):
+    # Mantém a borda esquerda fixa (baseada em base_text), então novos caracteres crescem para a direita.
+    base_bbox = draw.textbbox((0, 0), base_text, font=font)
+    base_width = base_bbox[2] - base_bbox[0]
+    left_x = right_x - base_width
+    draw.text((left_x, y), text, font=font, fill=fill)
+
+
 def paste_rounded_panel(base_image, image_to_paste, position, size, radius=20):
     content = fit_cover(image_to_paste.convert("RGBA"), size)
     mask = Image.new("L", size, 0)
@@ -178,7 +204,18 @@ def paste_rounded_panel(base_image, image_to_paste, position, size, radius=20):
     layer.paste(content, (0, 0))
     base_image.paste(layer, position, mask)
 
-async def generate_ability_image(character_name, technique_name, passive, rank, mastery, xp, xp_needed, description, race_name, image_url=None):
+async def generate_ability_image(
+    character_name,
+    technique_name,
+    passive,
+    rank,
+    mastery,
+    xp,
+    xp_needed,
+    description,
+    race_name,
+    image_url=None,
+):
     race_key = normalize_race_key(race_name)
     template_path = get_template_for_race(race_key)
     image = Image.open(template_path).convert("RGBA")
@@ -210,24 +247,38 @@ async def generate_ability_image(character_name, technique_name, passive, rank, 
     technique_name = clean_discord_formatting(technique_name)
     description = clean_discord_formatting(description)
 
-    passive = passive if passive and passive.strip() else "NENHUMA"
+    passive = passive if passive and passive.strip() else ""
+    race_name = clean_discord_formatting(race_name) if race_name else "Unknown"
     rank = (rank or "F-").upper()
 
-    draw.text((sx(ABILITY_TEXT_X), sy(ABILITY_TEXT_Y)), "HABILIDADE:", font=label_font, fill=LABEL_COLOR)
-    draw.text((sx(INFO_VALUE_COLUMN_X), sy(ABILITY_TEXT_Y)), technique_name, font=value_font, fill=accent_color)
+    draw.text((sx(ABILITY_TEXT_X), sy(ABILITY_TEXT_Y)), "SKILL:", font=label_font, fill=LABEL_COLOR)
+    draw.text((sx(ABILITY_VALUE_X), sy(ABILITY_VALUE_Y)), technique_name, font=value_font, fill=accent_color)
 
     draw.text((sx(RANK_TEXT_X), sy(RANK_TEXT_Y)), "RANK:", font=label_font, fill=LABEL_COLOR)
-    draw.text((sx(INFO_VALUE_COLUMN_X), sy(RANK_TEXT_Y)), rank, font=value_font, fill=accent_color)
+    draw.text((sx(RANK_VALUE_X), sy(RANK_VALUE_Y)), rank, font=value_font, fill=accent_color)
 
-    draw.text((sx(PASSIVE_TEXT_X), sy(PASSIVE_TEXT_Y)), "PASSIVA:", font=label_font, fill=LABEL_COLOR)
-    draw.text((sx(INFO_VALUE_COLUMN_X), sy(PASSIVE_TEXT_Y)), passive, font=value_font, fill=accent_color)
+    draw.text((sx(PASSIVE_TEXT_X), sy(PASSIVE_TEXT_Y)), "PASSIVE:", font=label_font, fill=LABEL_COLOR)
+    draw.text((sx(PASSIVE_VALUE_X), sy(PASSIVE_VALUE_Y)), passive, font=value_font, fill=accent_color)
+
+    draw.text((sx(ABILITY_GROUP_TEXT_X), sy(ABILITY_GROUP_TEXT_Y)), ABILITY_GROUP_LABEL_TEXT, font=label_font, fill=LABEL_COLOR)
+
+    draw.text((sx(RACE_TEXT_X), sy(RACE_TEXT_Y)), f"{RACE_LABEL_TEXT}:", font=label_font, fill=LABEL_COLOR)
+    draw.text((sx(RACE_VALUE_X), sy(RACE_VALUE_Y)), race_name, font=value_font, fill=accent_color)
 
     max_description_width = sx(DESCRIPTION_MAX_WIDTH)
     wrapped_description = wrap_text(description, description_font, max_description_width, draw)
     draw.text((sx(DESCRIPTION_X), sy(DESCRIPTION_Y)), wrapped_description, font=description_font, fill=DESCRIPTION_COLOR)
 
-    draw_right_aligned_text(draw, f"{xp}/{xp_needed} XP", sx(XP_TEXT_RIGHT_X), sy(XP_TEXT_Y), stat_font, accent_color)
-    draw_right_aligned_text(draw, f"MASTERY: {mastery}/600", sx(MASTERY_TEXT_RIGHT_X), sy(MASTERY_TEXT_Y), stat_font, accent_color)
+    draw_right_aligned_text(draw, f"{xp}/{xp_needed}", sx(XP_TEXT_RIGHT_X), sy(XP_TEXT_Y), stat_font, accent_color)
+    draw_text_grow_to_right(
+        draw,
+        f"MASTERY: {mastery}/600",
+        "MASTERY: 0/600",
+        sx(MASTERY_TEXT_RIGHT_X),
+        sy(MASTERY_TEXT_Y),
+        stat_font,
+        accent_color,
+    )
 
     if image_url:
         technique_image = await download_image(image_url)
@@ -273,13 +324,16 @@ async def show_ability_image(ctx, character_name: commands.clean_content, *, tec
         t.rank,
         t.description,
         t.image_url,
-        COALESCE(r.race_name, 'Unknown')
+        COALESCE(r.race_name, 'Unknown') AS race_name
     FROM techniques t
     JOIN characters ch ON ch.character_id = t.character_id
     LEFT JOIN character_race_progression r ON r.character_id = ch.character_id
     WHERE t.technique_name COLLATE NOCASE=?
       AND ch.name COLLATE NOCASE=?
-    """, (technique_name, character_name))
+            AND ch.user_id=?
+        ORDER BY t.rowid DESC
+        LIMIT 1
+        """, (technique_name, character_name, ctx.author.id))
 
     technique = c.fetchone()
 

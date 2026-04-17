@@ -164,6 +164,12 @@ def normalize_lookup_text(value):
     text = re.sub(r"[^a-z0-9]+", " ", text)
     return " ".join(text.split())
 
+
+def extract_first_image_url(text):
+    pattern = r"https?://\S+\.(?:png|jpg|jpeg|gif|webp)(?:\?\S*)?"
+    match = re.search(pattern, str(text or ""), flags=re.IGNORECASE)
+    return match.group(0) if match else None
+
 passives = {
     "Rare": [
         "Aumenta o XP ganho em 5%", 
@@ -1264,12 +1270,25 @@ class Techniques(commands.Cog):
         await self.send_embed(ctx, "**DESCRIÇÃO DA TÉCNICA**", "- > **Por favor, forneça a descrição da técnica.**")
         try:
             description_message = await self.bot.wait_for('message', check=check, timeout=60.0)
-            description = description_message.content
+            raw_description = (description_message.content or "").strip()
             image_url = description_message.attachments[0].url if description_message.attachments else None
+            if not image_url:
+                image_url = extract_first_image_url(raw_description)
+
+            description = raw_description
+            if image_url and description and image_url in description:
+                description = description.replace(image_url, "").strip()
+
+            if not description:
+                description = "Sem descrição."
 
             power_systems_list = list(VALID_POWER_SYSTEMS)
-            power_systems_str = "\n".join([f"**{i+1}. {sys}**" for i, sys in enumerate(power_systems_list)])
-            await self.send_embed(ctx, "**TIPO DE PODER**", f"Escolha o tipo de poder:\n{power_systems_str}\n\n**Responda com o número (1-{len(power_systems_list)})**")
+            power_systems_str = "\n".join([f"- > **{i+1}. {sys}**" for i, sys in enumerate(power_systems_list)])
+            await self.send_embed(
+                ctx,
+                "**__```𝐓𝐈𝐏𝐎 𝐃𝐄 𝐏𝐎𝐃𝐄𝐑```__**",
+                f"- > **Escolha o tipo de poder:**\n\n{power_systems_str}\n\n- > **Responda com o número (1-{len(power_systems_list)})**",
+            )
             
             power_system_message = await self.bot.wait_for('message', check=check, timeout=60.0)
             try:
@@ -1285,8 +1304,12 @@ class Techniques(commands.Cog):
 
             reiatsu_category = None
             if power_system == "reiatsu":
-                reiatsu_categories_str = "\n".join([f"**{i+1}. {cat}**" for i, cat in enumerate(VALID_REIATSU_CATEGORIES)])
-                await self.send_embed(ctx, "**CATEGORIA DE REIATSU**", f"Escolha a categoria:\n{reiatsu_categories_str}\n\n**Responda com o número (1-{len(VALID_REIATSU_CATEGORIES)})**")
+                reiatsu_categories_str = "\n".join([f"- > **{i+1}. {cat}**" for i, cat in enumerate(VALID_REIATSU_CATEGORIES)])
+                await self.send_embed(
+                    ctx,
+                    "**__```𝐂𝐀𝐓𝐄𝐆𝐎𝐑𝐈𝐀 𝐃𝐄 𝐑𝐄𝐈𝐀𝐓𝐒𝐔```__**",
+                    f"- > **Escolha a categoria:**\n\n{reiatsu_categories_str}\n\n- > **Responda com o número (1-{len(VALID_REIATSU_CATEGORIES)})**",
+                )
                 
                 reiatsu_message = await self.bot.wait_for('message', check=check, timeout=60.0)
                 try:
