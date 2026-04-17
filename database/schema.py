@@ -127,6 +127,12 @@ def create_tables(conn: sqlite3.Connection, cursor: sqlite3.Cursor, *, schema_ve
             FOREIGN KEY(characteristic_id) REFERENCES characteristic_definitions(id) ON DELETE CASCADE,
             UNIQUE(character_id, characteristic_id)
         )''',
+        '''CREATE TABLE IF NOT EXISTS log_channel_settings (
+            guild_id INTEGER PRIMARY KEY,
+            channel_id INTEGER NOT NULL,
+            updated_by INTEGER,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )''',
     ]
 
     characters_table = '''CREATE TABLE IF NOT EXISTS characters (

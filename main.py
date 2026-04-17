@@ -1,12 +1,12 @@
-import discord
-from discord.ext import commands
-from discord import app_commands
-from discord.ui import Button, View, Modal, TextInput
-import sqlite3
-import aiohttp
-import math
-import os
 import asyncio
+import os
+import traceback
+from typing import Any, cast
+
+import discord
+from discord import app_commands
+from discord.ext import commands
+
 from database.connection import create_connection
 from database.schema import create_tables as bootstrap_schema
 from database.schema import migrate_abilities_schema as migrate_abilities_schema_impl
@@ -40,43 +40,128 @@ def migrate_abilities_schema():
 
 create_tables()
 
-def apply_layout(user_id, title, description):
-    """Aplica o layout personalizado do usuário ao título e descrição"""
-    c.execute("SELECT title_layout, description_layout FROM layout_settings WHERE user_id=?", (user_id,))
-    layout = c.fetchone()
-
-    if layout:
-        title_layout, description_layout = layout
-    else:
-        title_layout = "╚╡ ⬥ {title} ⬥ ╞"
-        description_layout = "╚───► *「{description}」*"
-
-    formatted_title = title_layout.replace("{title}", title)
-    formatted_description = description_layout.replace("{description}", description)
-
-    return formatted_title, formatted_description
-
-def to_bold_sans_serif(text):
-    """Converte texto para bold sans-serif Unicode"""
-    bold_sans_serif = {
-        'A': '𝐀', 'B': '𝐁', 'C': '𝐂', 'D': '𝐃', 'E': '𝐄', 'F': '𝐅', 'G': '𝐆',
-        'H': '𝐇', 'I': '𝐈', 'J': '𝐉', 'K': '𝐊', 'L': '𝐋', 'M': '𝐌', 'N': '𝐍',
-        'O': '𝐎', 'P': '𝐏', 'Q': '𝐐', 'R': '𝐑', 'S': '𝐒', 'T': '𝐓', 'U': '𝐔',
-        'V': '𝐕', 'W': '𝐖', 'X': '𝐗', 'Y': '𝐘', 'Z': '𝐙',
-        'a': '𝐚', 'b': '𝐛', 'c': '𝐜', 'd': '𝐝', 'e': '𝐞', 'f': '𝐟', 'g': '𝐠',
-        'h': '𝐡', 'i': '𝐢', 'j': '𝐣', 'k': '𝐤', 'l': '𝐥', 'm': '𝐦', 'n': '𝐧',
-        'o': '𝐨', 'p': '𝐩', 'q': '𝐪', 'r': '𝐫', 's': '𝐬', 't': '𝐭', 'u': '𝐮',
-        'v': '𝐯', 'w': '𝐰', 'x': '𝐱', 'y': '𝐲', 'z': '𝐳'
-    }
-    return ''.join(bold_sans_serif[ch] if ch in bold_sans_serif else ch for ch in text.upper())
-
-async def send_embed(ctx, title, description, color=discord.Color.blue()):
-    embed = discord.Embed(title=title, description=description, color=color)
-    await ctx.send(embed=embed)
-
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user}')
+
+
+def _is_user_input_error(error: BaseException) -> bool:
+    return isinstance(
+        error,
+        (
+            commands.UserInputError,
+            commands.CheckFailure,
+            commands.CommandNotFound,
+            commands.CommandOnCooldown,
+            app_commands.CheckFailure,
+            app_commands.CommandOnCooldown,
+        ),
+    )
+
+
+async def _log_technical_error(
+    *,
+    source: str,
+    error: BaseException,
+    guild_id: int | None = None,
+    user_id: int | None = None,
+    command_name: str | None = None,
+    extra_context: str | None = None,
+):
+    logs_cog = bot.get_cog('Logs')
+    if logs_cog is None:
+        return
+
+    log_handler = cast(Any, getattr(logs_cog, 'log_technical_error', None))
+    if log_handler is None:
+        return
+
+    try:
+        await log_handler(
+            source=source,
+            error=error,
+            guild_id=guild_id,
+            user_id=user_id,
+            command_name=command_name,
+            extra_context=extra_context,
+        )
+    except Exception:
+        print('Falha ao enviar erro tecnico para o canal de logs:')
+        print(traceback.format_exc())
+
+
+@bot.event
+async def on_command_error(ctx: commands.Context, error: commands.CommandError):
+    original_error = getattr(error, 'original', error)
+    if _is_user_input_error(original_error):
+        return
+
+    guild_id = ctx.guild.id if ctx.guild else None
+    command_name = ctx.command.qualified_name if ctx.command else None
+    await _log_technical_error(
+        source='prefix_command',
+        error=original_error,
+        guild_id=guild_id,
+        user_id=ctx.author.id if ctx.author else None,
+        command_name=command_name,
+    )
+
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    original_error = getattr(error, 'original', error)
+    if _is_user_input_error(original_error):
+        return
+
+    guild_id = interaction.guild.id if interaction.guild else None
+    command_name = interaction.command.qualified_name if interaction.command else None
+    await _log_technical_error(
+        source='slash_command',
+        error=original_error,
+        guild_id=guild_id,
+        user_id=interaction.user.id if interaction.user else None,
+        command_name=command_name,
+    )
+
+
+@bot.event
+async def on_error(event_method: str, *args, **kwargs):
+    error = kwargs.get('error')
+    if not isinstance(error, BaseException):
+        error = Exception(traceback.format_exc())
+
+    guild_id = None
+    user_id = None
+    if args:
+        first = args[0]
+        if isinstance(first, commands.Context):
+            guild_id = first.guild.id if first.guild else None
+            user_id = first.author.id if first.author else None
+        elif isinstance(first, discord.Interaction):
+            guild_id = first.guild.id if first.guild else None
+            user_id = first.user.id if first.user else None
+
+    await _log_technical_error(
+        source=f'event:{event_method}',
+        error=error,
+        guild_id=guild_id,
+        user_id=user_id,
+    )
+
+
+def _loop_exception_handler(loop: asyncio.AbstractEventLoop, context: dict):
+    error = context.get('exception')
+    if not isinstance(error, BaseException):
+        message = context.get('message', 'Erro desconhecido no loop asyncio')
+        error = RuntimeError(str(message))
+
+    loop.create_task(
+        _log_technical_error(
+            source='asyncio_loop',
+            error=error,
+            extra_context=context.get('message'),
+        )
+    )
 
 
 async def sync_slash_commands():
@@ -107,233 +192,28 @@ async def clear_all_commands():
         print(f"❌ Erro ao deletar comandos: {e}")
         return False
 
-
-@bot.tree.command(name='pendencias', description='Mostra pendências do personagem')
-@app_commands.describe(name='Nome do personagem (opcional)')
-async def pendencias_slash(interaction: discord.Interaction, name: str | None = None):
-    if not name:
-        c.execute(
-            """
-            SELECT c.character_id, c.name, p.points_available, p.level, p.limit_break, p.rank
-            FROM characters c
-            LEFT JOIN character_progression p ON c.character_id = p.character_id
-            WHERE c.user_id=?
-            ORDER BY c.character_id DESC
-            LIMIT 1
-            """,
-            (interaction.user.id,),
-        )
-    else:
-        c.execute(
-            """
-            SELECT c.character_id, c.name, p.points_available, p.level, p.limit_break, p.rank
-            FROM characters c
-            LEFT JOIN character_progression p ON c.character_id = p.character_id
-            WHERE c.name COLLATE NOCASE=? AND c.user_id=?
-            """,
-            (name, interaction.user.id),
-        )
-
-    character = c.fetchone()
-    if not character:
-        embed = discord.Embed(
-            title="**__```𝐄𝐑𝐑𝐎```__**",
-            description="- > **Personagem não encontrado.**",
-            color=discord.Color.red(),
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
-
-    character_id, char_name, points, level, limit_break, rank = character
-    pendencias_lista = []
-
-    if points > 0:
-        pendencias_lista.append(f"- Você tem **{points}** pontos para distribuir. (`kill!points {char_name} forca 1`)")
-
-    c.execute("SELECT COUNT(*) FROM techniques WHERE character_id=? AND category_id IS NULL", (character_id,))
-    sem_habilidade = c.fetchone()[0]
-    if sem_habilidade > 0:
-        pendencias_lista.append(f"- Você tem **{sem_habilidade}** técnica(s) sem habilidade. (`kill!assignability '{char_name}' 'Tecnica' 'Habilidade'`)")
-
-    c.execute("SELECT COUNT(*) FROM inventory WHERE character_name COLLATE NOCASE=? AND user_id=?", (char_name, interaction.user.id))
-    itens = c.fetchone()[0]
-    rank_capacities = {
-        'F-': 4, 'F': 8, 'F+': 12, 'E-': 16, 'E': 20, 'E+': 24,
-        'D-': 28, 'D': 32, 'D+': 36, 'C-': 40, 'C': 44, 'C+': 48,
-        'B-': 52, 'B': 56, 'B+': 60, 'A-': 64, 'A': 68, 'A+': 72,
-        'S': 76, 'S+': 80, 'SS': 84, 'SS+': 88, 'SSS': 92, 'SSS+': 96, 'Z': 100,
-    }
-    cap = rank_capacities.get(rank, 4)
-    if cap - itens <= 2:
-        pendencias_lista.append(f"- Inventário quase cheio: **{itens}/{cap}**.")
-
-    if level >= limit_break:
-        pendencias_lista.append(f"- Você atingiu o limitador de nível (**{limit_break}**). Use `kill!evolve {char_name}`.")
-
-    if not pendencias_lista:
-        embed = discord.Embed(
-            title="**__```𝐀𝐑𝐄𝐍𝐀𝐃𝐎```__**",
-            description=f"- > **{char_name} está em dia.**",
-            color=discord.Color.green(),
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
-
-    embed = discord.Embed(
-        title=f"**__```𝐏𝐄𝐍𝐃𝐄̂𝐍𝐂𝐈𝐀𝐒 𝐃𝐄 {char_name.upper()}```__**",
-        description="\n".join(pendencias_lista),
-        color=discord.Color.orange(),
-    )
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-
-
-@bot.tree.command(name='inv', description='Mostra o inventário do personagem')
-@app_commands.describe(character_name='Nome do personagem')
-async def inv_slash(interaction: discord.Interaction, character_name: str):
-    c.execute("SELECT item_name, description FROM inventory WHERE character_name COLLATE NOCASE=? AND user_id=?", (character_name, interaction.user.id))
-    items = c.fetchall()
-    if not items:
-        embed = discord.Embed(
-            title="**__```𝐈𝐍𝐕𝐄𝐍𝐓𝐀́𝐑𝐈𝐎 𝐕𝐀𝐙𝐈𝐎```__**",
-            description=f"- > **O inventário de {character_name} está vazio.**",
-            color=discord.Color.red()
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
-
-    c.execute("""
-        SELECT p.rank
-        FROM characters c
-        JOIN character_progression p ON c.character_id = p.character_id
-        WHERE c.name COLLATE NOCASE=? AND c.user_id=?
-    """, (character_name, interaction.user.id))
-    character_rank = c.fetchone()
-    if not character_rank:
-        embed = discord.Embed(
-            title="**__```𝐄𝐑𝐑𝐎```__**",
-            description=f"- > **Personagem {character_name} não encontrado.**",
-            color=discord.Color.red()
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
-
-    rank = character_rank[0]
-    rank_capacities = {
-        'F-': 4, 'F': 8, 'F+': 12, 'E-': 16, 'E': 20, 'E+': 24,
-        'D-': 28, 'D': 32, 'D+': 36, 'C-': 40, 'C': 44, 'C+': 48,
-        'B-': 52, 'B': 56, 'B+': 60, 'A-': 64, 'A': 68, 'A+': 72,
-        'S': 76, 'S+': 80, 'SS': 84, 'SS+': 88, 'SSS': 92, 'SSS+': 96, 'Z': 100
-    }
-    capacity = rank_capacities.get(rank, 4)
-    
-    item_list = "\n".join([f"- {item[0]}: {item[1]}" for item in items])
-    formatted_character_name = to_bold_sans_serif(character_name)
-    
-    embed = discord.Embed(
-        title=f"𝐈𝐧𝐯𝐞𝐧𝐭𝐚́𝐫𝐢𝐨 𝐝𝐞 {formatted_character_name}",
-        description=f"{item_list}\n\n𝐂𝐚𝐩𝐚𝐜𝐢𝐝𝐚𝐝𝐞: {len(items)}/{capacity} itens",
-        color=discord.Color.blue()
-    )
-    
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-
-
-@bot.tree.command(name='showitem', description='Mostra detalhes de um item do inventário')
-@app_commands.describe(character_name='Nome do personagem', item_name='Nome do item')
-async def showitem_slash(interaction: discord.Interaction, character_name: str, item_name: str):
-    c.execute(
-        "SELECT item_name, description, image_url FROM inventory WHERE character_name COLLATE NOCASE=? AND item_name COLLATE NOCASE=? AND user_id=?",
-        (character_name, item_name, interaction.user.id)
-    )
-    item = c.fetchone()
-    if not item:
-        embed = discord.Embed(
-            title="**__```𝐄𝐑𝐑𝐎```__**",
-            description=f"- > **Item {item_name} não encontrado no inventário de {character_name}.**",
-            color=discord.Color.red()
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
-
-    found_name, description, image_url = item
-    formatted_title, formatted_description = apply_layout(interaction.user.id, found_name, description)
-    embed = discord.Embed(title=formatted_title, description=formatted_description, color=discord.Color.blue())
-    if image_url:
-        embed.set_image(url=image_url)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-
-
-@bot.tree.command(name='xp', description='Admin: adiciona XP a um personagem')
-@app_commands.default_permissions(administrator=True)
-@app_commands.describe(character_name='Nome do personagem', xp_amount='Quantidade de XP')
-async def xp_slash(interaction: discord.Interaction, character_name: str, xp_amount: int):
-    if interaction.guild is None or not isinstance(interaction.user, discord.Member) or not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("Sem permissão de administrador.", ephemeral=True)
-        return
-
-    c.execute("SELECT character_id FROM characters WHERE name=?", (character_name,))
-    character = c.fetchone()
-    if not character:
-        await interaction.response.send_message(f"Personagem {character_name} não encontrado.", ephemeral=True)
-        return
-
-    character_id = character[0]
-
-    c.execute("""
-        SELECT experience, level, points_available, limit_break, xp_multiplier
-        FROM character_progression
-        WHERE character_id=?
-    """, (character_id,))
-    character = c.fetchone()
-    if not character:
-        await interaction.response.send_message(f"Progressão de {character_name} não encontrada.", ephemeral=True)
-        return
-
-    experience, level, points, limit_break, xp_multiplier = character
-    gained_xp = int(xp_amount * (xp_multiplier or 1.0))
-    new_experience = experience + gained_xp
-
-    def xp_for_next_level(local_level: int):
-        return int(100 * local_level * math.log(local_level + 1))
-
-    while level < 1000 and new_experience >= xp_for_next_level(level):
-        new_experience -= xp_for_next_level(level)
-        level += 1
-        points += 3
-        if level >= limit_break:
-            new_experience = 0
-            break
-
-    c.execute(
-        "UPDATE character_progression SET experience=?, level=?, points_available=?, updated_at=CURRENT_TIMESTAMP WHERE character_id=?",
-        (new_experience, level, points, character_id)
-    )
-    conn.commit()
-    await interaction.response.send_message(
-        f"XP aplicado em **{character_name}**. Nível atual: **{level}**, XP atual: **{round(new_experience)}**, pontos: **{points}**.",
-        ephemeral=True,
-    )
-
-
-@bot.command(name='syncslash')
-@commands.has_permissions(administrator=True)
-async def syncslash(ctx):
-    """Força sincronização manual de comandos slash globalmente."""
-    await sync_slash_commands()
-    await ctx.send('- > **Slash commands sincronizados globalmente para todos os servidores.**')
-
 async def setup_hook():
     """Carrega extensões e sincroniza comandos slash globalmente."""
+    asyncio.get_running_loop().set_exception_handler(_loop_exception_handler)
+
+    await bot.load_extension('commands.logs')
     await bot.load_extension('commands.register')
+    await bot.load_extension('commands.slash.character.register')
     await bot.load_extension('commands.characteristics')
+    await bot.load_extension('commands.slash.character.characteristics')
     await bot.load_extension('commands.discovery')
+    await bot.load_extension('commands.slash.character.discovery')
     await bot.load_extension('commands.layout')
+    await bot.load_extension('commands.slash.customization.layout')
     await bot.load_extension('commands.help_menu')
+    await bot.load_extension('commands.slash.ui.help_menu')
     await bot.load_extension('commands.inventory')
+    await bot.load_extension('commands.slash.items.inventory')
     await bot.load_extension('commands.xp')
+    await bot.load_extension('commands.slash.progression.xp')
     await bot.load_extension('commands.classes')
     await bot.load_extension('commands.tecnicas')
-    await bot.load_extension('commands.logs')
+    await bot.load_extension('commands.admin')
     await bot.load_extension('commands.category')
     await bot.load_extension('commands.image_skill')
     await bot.load_extension('commands.soul_commands')

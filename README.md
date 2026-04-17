@@ -69,6 +69,16 @@ DISCORD_TOKEN=seu_token_aqui
 python main.py
 ```
 
+## Modo de Desenvolvimento com Auto-Restart
+
+Se quiser manter o bot ligado e reiniciar automaticamente ao salvar arquivos Python, use:
+
+```bash
+python dev_runner.py
+```
+
+Esse modo monitora os arquivos `.py` do projeto e reinicia o `main.py` sempre que houver alteração.
+
 ## Banco de Dados
 
 O bot usa SQLite local no arquivo characters.db.

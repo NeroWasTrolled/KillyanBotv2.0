@@ -3,6 +3,7 @@ import random
 import discord
 import re
 import math  
+import asyncio
 from commands.logs import Logs
 from discord.ext import commands
 from database.connection import create_connection
@@ -181,7 +182,7 @@ def set_level(character_name, user_id, new_level):
 
     character_id = get_character_by_name_and_user(character_name, user_id)
     if not character_id:
-        return
+        return None, None, None, None
 
     c.execute("SELECT rebirth_count FROM rebirths WHERE character_name=? AND user_id=?", (character_name, user_id))
     rebirth_data = c.fetchone()
@@ -302,6 +303,8 @@ def apply_rebirth(character_name, user_id, current_level, rebirth_type):
         elif rebirth_type == 'late':
             bonus_points = 20 + rebirth_count * 5 
             xp_multiplier = 1.3 + (rebirth_count * 0.05)  
+        else:
+            return None
 
         next_rebirth_levels = {
             'early': 25 + rebirth_count * 5,
@@ -418,7 +421,7 @@ async def evolve(ctx, character_name: str):
 
 @commands.has_permissions(administrator=True)
 @commands.command(name='rebirth', aliases=['renascer'])
-async def rebirth(ctx, character_name: str, rebirth_type: str = None):
+async def rebirth(ctx, character_name: str, rebirth_type: str | None = None):
     if rebirth_type is None:
         await send_embed(
             ctx,
@@ -528,6 +531,7 @@ async def points(ctx, character_name: str, attribute: str, points: int):
     conn.commit()
 
     await send_embed(ctx, "**__```𝐏𝐎𝐍𝐓𝐎𝐒 𝐃𝐈𝐒𝐓𝐑𝐈𝐁𝐔𝐈́𝐃𝐎𝐒```__**", f'**🎉 __{points}__ pontos distribuídos para __{attribute}__ de __{character_name}__. Pontos restantes: __{current_points}__.**', discord.Color.green(), next_step="use `kill!details NomeDoPersonagem` para acompanhar o build")
+
 
 async def setup(bot):
     bot.add_command(xp)

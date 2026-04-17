@@ -1,11 +1,16 @@
-import sqlite3
 import discord
 from discord.ext import commands
 from discord.ui import Button, View, Modal, TextInput
 import math
-import re
 import asyncio
 from database.connection import create_connection
+from utils.common import (
+    apply_layout as shared_apply_layout,
+    parse_quoted_args,
+    sanitize_input,
+    send_embed as shared_send_embed,
+    to_bold_sans_serif,
+)
 
 class Categories(commands.Cog):
     def __init__(self, bot):
@@ -15,41 +20,15 @@ class Categories(commands.Cog):
 
     def parse_registration_args(self, args):
         """Função para parsear argumentos"""
-        pattern = r'\'(.*?)\'|(\S+)'
-        matches = re.findall(pattern, args)
-        tokens = [match[0] if match[0] else match[1] for match in matches]
-
-        name = tokens[0] if len(tokens) > 0 else None
-        return tokens
+        return parse_quoted_args(args)
 
     def sanitize_input(self, input_str):
         """Sanitiza entradas para evitar caracteres especiais"""
-        if not re.match(r"^[a-zA-Z0-9\s]*$", input_str):
-            return False
-        return True
-
-    def apply_layout(self, user_id, title, description):
-        """Aplica o layout personalizado para o título e descrição"""
-        self.c.execute("SELECT title_layout, description_layout FROM layout_settings WHERE user_id=?", (user_id,))
-        layout = self.c.fetchone()
-
-        if layout:
-            title_layout, description_layout = layout
-        else:
-            title_layout = "╚╡ ⬥ {title} ⬥ ╞"
-            description_layout = "╚───► *「{description}」*"
-
-        formatted_title = title_layout.replace("{title}", title)
-        formatted_description = description_layout.replace("{description}", description)
-
-        return formatted_title, formatted_description
+        return sanitize_input(input_str)
 
     async def send_embed(self, ctx, title, description, color, image_url=None):
         """Envia um embed formatado"""
-        embed = discord.Embed(title=title, description=description, color=color)
-        if image_url:
-            embed.set_image(url=image_url)
-        await ctx.send(embed=embed)
+        await shared_send_embed(ctx, title, description, color, image_url=image_url)
 
     @commands.command(name='createability', aliases=['createcategory'])
     async def create_category(self, ctx, *, args: str):
@@ -67,14 +46,21 @@ class Categories(commands.Cog):
 
         self.c.execute("SELECT character_id FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (character_name, ctx.author.id))
         character = self.c.fetchone()
+        formatted_character = to_bold_sans_serif(character_name)
+        formatted_ability = to_bold_sans_serif(ability_name)
 
         if not character:
-            await ctx.send("- > **Personagem não encontrado.**")
+            await self.send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Personagem não encontrado.**", discord.Color.red())
             return
 
         character_id = character[0]
 
-        await ctx.send(f"- > **Por favor, forneça uma descrição para a habilidade `{ability_name}`. Você tem 1 minuto.**")
+        await self.send_embed(
+            ctx,
+            "**__```𝐃𝐄𝐒𝐂𝐑𝐈𝐂̧𝐀̃𝐎 𝐃𝐀 𝐇𝐀𝐁𝐈𝐋𝐈𝐃𝐀𝐃𝐄```__**",
+            f"- > **Forneça a descrição de {formatted_ability} para o personagem {formatted_character}. Você tem 1 minuto.**",
+            discord.Color.blue(),
+        )
 
         def check(m):
             return m.author == ctx.author and m.channel == ctx.channel
@@ -83,13 +69,18 @@ class Categories(commands.Cog):
             description_msg = await self.bot.wait_for('message', check=check, timeout=60.0)
             description = description_msg.content
         except asyncio.TimeoutError:
-            await ctx.send("- > **Tempo esgotado. O processo de criação da habilidade foi cancelado.**")
+            await self.send_embed(ctx, "**__```𝐓𝐄𝐌𝐏𝐎 𝐄𝐒𝐆𝐎𝐓𝐀𝐃𝐎```__**", "- > **O processo de criação da habilidade foi cancelado.**", discord.Color.red())
             return
 
         self.c.execute("INSERT INTO abilities (character_id, category_name, description) VALUES (?, ?, ?)", (character_id, ability_name, description))
         self.conn.commit()
 
-        await ctx.send(f"- > **Habilidade `{ability_name}` criada com sucesso para o personagem `{character_name}`.**")
+        await self.send_embed(
+            ctx,
+            "**__```𝐇𝐀𝐁𝐈𝐋𝐈𝐃𝐀𝐃𝐄 𝐂𝐑𝐈𝐀𝐃𝐀```__**",
+            f"- > **A habilidade {formatted_ability} foi criada com sucesso para {formatted_character}.**",
+            discord.Color.green(),
+        )
 
 
     @commands.command(name='delability', aliases=['delcategory'])
@@ -123,7 +114,13 @@ class Categories(commands.Cog):
 
         category_id = category[0]
 
-        await ctx.send(f"- > **Tem certeza que deseja remover a habilidade `{ability_name}`? Responda com `sim` ou `não`.**")
+        formatted_ability = to_bold_sans_serif(ability_name)
+        await self.send_embed(
+            ctx,
+            "**__```𝐂𝐎𝐍𝐅𝐈𝐑𝐌𝐀𝐂̧𝐀̃𝐎```__**",
+            f"- > **Deseja remover a habilidade {formatted_ability}? Responda com `sim` ou `não`.**",
+            discord.Color.orange(),
+        )
 
         def check(m):
             return m.author == ctx.author and m.channel == ctx.channel
@@ -131,17 +128,22 @@ class Categories(commands.Cog):
         try:
             confirmation = await self.bot.wait_for('message', check=check, timeout=30.0)
             if confirmation.content.lower() != 'sim':
-                await ctx.send("- > **Remoção cancelada.**")
+                await self.send_embed(ctx, "**__```𝐂𝐀𝐍𝐂𝐄𝐋𝐀𝐃𝐎```__**", "- > **Remoção cancelada.**", discord.Color.red())
                 return
         except asyncio.TimeoutError:
-            await ctx.send("- > **Tempo esgotado. Remoção cancelada.**")
+            await self.send_embed(ctx, "**__```𝐓𝐄𝐌𝐏𝐎 𝐄𝐒𝐆𝐎𝐓𝐀𝐃𝐎```__**", "- > **Remoção cancelada por tempo esgotado.**", discord.Color.red())
             return
 
         self.c.execute("UPDATE techniques SET category_id=NULL WHERE category_id=?", (category_id,))
         self.c.execute("DELETE FROM abilities WHERE category_id=?", (category_id,))
         self.conn.commit()
 
-        await ctx.send(f"- > **Habilidade `{ability_name}` e suas associações foram removidas com sucesso.**")
+        await self.send_embed(
+            ctx,
+            "**__```𝐇𝐀𝐁𝐈𝐋𝐈𝐃𝐀𝐃𝐄 𝐑𝐄𝐌𝐎𝐕𝐈𝐃𝐀```__**",
+            f"- > **A habilidade {formatted_ability} e suas associações foram removidas com sucesso.**",
+            discord.Color.green(),
+        )
 
 
     @commands.command(name='assignability', aliases=['assigntechnique'])
@@ -181,7 +183,14 @@ class Categories(commands.Cog):
             await self.send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Técnica não encontrada para o personagem.**", discord.Color.red())
         else:
             self.conn.commit()
-            await self.send_embed(ctx, "- > **Sucesso**", f"- > **Técnica `{technique_name}` vinculada à habilidade `{ability_name}` com sucesso.**", discord.Color.green())
+            formatted_technique = to_bold_sans_serif(technique_name)
+            formatted_ability = to_bold_sans_serif(ability_name)
+            await self.send_embed(
+                ctx,
+                "**__```𝐕𝐈𝐍𝐂𝐔𝐋𝐀𝐂̧𝐀̃𝐎 𝐂𝐎𝐍𝐂𝐋𝐔𝐈́𝐃𝐀```__**",
+                f"- > **A técnica {formatted_technique} foi vinculada à habilidade {formatted_ability}.**",
+                discord.Color.green(),
+            )
 
     @commands.command(name='listabilities', aliases=['listcategories'])
     async def list_categories(self, ctx, character_name: str):
@@ -190,7 +199,7 @@ class Categories(commands.Cog):
         character = self.c.fetchone()
 
         if not character:
-            await ctx.send("- > **Personagem não encontrado.**")
+            await self.send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Personagem não encontrado.**", discord.Color.red())
             return
 
         character_id = character[0]
@@ -199,7 +208,7 @@ class Categories(commands.Cog):
         categories = self.c.fetchall()
 
         if not categories:
-            await ctx.send("- > **Nenhuma habilidade encontrada para o personagem.**")
+            await self.send_embed(ctx, "**__```𝐒𝐄𝐌 𝐇𝐀𝐁𝐈𝐋𝐈𝐃𝐀𝐃𝐄𝐒```__**", "- > **Nenhuma habilidade encontrada para o personagem.**", discord.Color.blue())
             return
 
         per_page = 5
@@ -234,7 +243,7 @@ class Categories(commands.Cog):
                 await interaction.response.send_message("- > **Você não pode usar este comando.**", ephemeral=True)
                 return
 
-            modal = GoToPageModal(update_message, total_pages)
+            modal = self.GoToPageModal(update_message, total_pages)
             await interaction.response.send_modal(modal)
 
         embed = await self.create_list_embed(ctx, categories, current_page, per_page, total_pages, total_results, character_name, character_id)
@@ -244,7 +253,8 @@ class Categories(commands.Cog):
         start = (page - 1) * per_page
         end = start + per_page
 
-        embed = discord.Embed(title=f"𝐇𝐀𝐁𝐈𝐋𝐈𝐃𝐀𝐃𝐄𝐒 𝐃𝐄 {character_name} (Página {page}/{total_pages})", color=discord.Color.blue())
+        formatted_character = to_bold_sans_serif(character_name)
+        embed = discord.Embed(title=f"𝐇𝐀𝐁𝐈𝐋𝐈𝐃𝐀𝐃𝐄𝐒 𝐃𝐄 {formatted_character} (Página {page}/{total_pages})", color=discord.Color.blue())
         result_list = []
         for category_name, description in categories[start:end]:
             self.c.execute("SELECT technique_name FROM techniques WHERE category_id=(SELECT category_id FROM abilities WHERE category_name=? AND character_id=?)", (category_name, character_id))
@@ -261,26 +271,20 @@ class Categories(commands.Cog):
 
     def apply_layout(self, user_id, title, description):
         """Aplica o layout personalizado para o título e descrição"""
-        self.c.execute("SELECT title_layout, description_layout FROM layout_settings WHERE user_id=?", (user_id,))
-        layout = self.c.fetchone()
-
-        if layout:
-            title_layout, description_layout = layout
-        else:
-            title_layout = "╚╡ ⬥ {title} ⬥ ╞"
-            description_layout = "╚───► *「{description}」*"
-
-        formatted_title = title_layout.replace("{title}", title)
-        formatted_description = description_layout.replace("{description}", description)
-
-        return formatted_title, formatted_description
+        return shared_apply_layout(
+            user_id,
+            title,
+            description,
+            default_title="╚╡ ⬥ {title} ⬥ ╞",
+            default_description="╚───► *「{description}」*",
+        )
 
     class GoToPageModal(Modal):
         def __init__(self, update_message, total_pages):
-            super().__init__(title="Go to Page")
+            super().__init__(title="Ir para página")
             self.update_message = update_message
             self.total_pages = total_pages
-            self.page_number = TextInput(label="Page Number", style=discord.TextStyle.short)
+            self.page_number = TextInput(label="Número da página", style=discord.TextStyle.short)
             self.add_item(self.page_number)
 
         async def on_submit(self, interaction):
@@ -289,9 +293,9 @@ class Categories(commands.Cog):
                 if 1 <= page <= self.total_pages:
                     await self.update_message(interaction, page)
                 else:
-                    await interaction.response.send_message(f"Invalid page number. Please enter a number between 1 and {self.total_pages}.", ephemeral=True)
+                    await interaction.response.send_message(f"Número de página inválido. Digite um número entre 1 e {self.total_pages}.", ephemeral=True)
             except ValueError:
-                await interaction.response.send_message("Invalid page number. Please enter a valid integer.", ephemeral=True)
+                await interaction.response.send_message("Número de página inválido. Digite um inteiro válido.", ephemeral=True)
 
     @commands.command(name='abilitydetails', aliases=['categorydetails'])
     async def category_details(self, ctx, *, args: str):
