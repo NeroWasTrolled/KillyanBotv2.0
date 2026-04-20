@@ -106,12 +106,6 @@ async def get_character_id(ctx, character_name: str) -> Optional[int]:
     result = c.fetchone()
     return result[0] if result else None
 
-async def is_admin(ctx) -> bool:
-    """Verifica se usuário é admin."""
-    user_obj = getattr(ctx, 'user', None) or getattr(ctx, 'author', None)
-    guild_permissions = getattr(user_obj, 'guild_permissions', None)
-    return bool(guild_permissions and guild_permissions.administrator)
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # COG: SOUL COMMANDS
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -154,7 +148,7 @@ class SoulCommands(commands.Cog):
         
         ACTION:
         - view: Mostra raça atual
-        - set: Define raça e estágio (ADMIN ONLY)
+        - set: Define raça e estágio
         - evolve: Avança para próximo estágio (requires conditions)
         """
         
@@ -179,7 +173,7 @@ class SoulCommands(commands.Cog):
             if not result:
                 embed = discord.Embed(
                     title="**__```𝐑𝐀𝐂̧𝐀 𝐍𝐀̃𝐎 𝐃𝐄𝐅𝐈𝐍𝐈𝐃𝐀```__**",
-                    description="- > **Este personagem ainda não tem raça definida. Peça a um admin para definir.**",
+                    description="- > **Este personagem ainda não tem raça definida. Use action:set para definir.**",
                     color=discord.Color.red()
                 )
             else:
@@ -193,16 +187,7 @@ class SoulCommands(commands.Cog):
             await interaction.response.send_message(embed=embed, ephemeral=True)
         
         elif action == "set":
-            # Definir raça (ADMIN ONLY)
-            if not await is_admin(interaction):
-                embed = discord.Embed(
-                    title="**__```𝐏𝐄𝐑𝐌𝐈𝐒𝐒𝐀̃𝐎 𝐍𝐄𝐆𝐀𝐃𝐀```__**",
-                    description="- > **Apenas administradores podem definir raça.**",
-                    color=discord.Color.red()
-                )
-                await interaction.response.send_message(embed=embed, ephemeral=True)
-                return
-            
+            # Definir raça
             if not race or not stage:
                 embed = discord.Embed(
                     title="**__```𝐏𝐀𝐑𝐀̂𝐌𝐄𝐓𝐑𝐎𝐒 𝐈𝐍𝐂𝐎𝐌𝐏𝐋𝐄𝐓𝐎𝐒```__**",
@@ -269,7 +254,7 @@ class SoulCommands(commands.Cog):
             if not result:
                 embed = discord.Embed(
                     title="**__```𝐑𝐀𝐂̧𝐀 𝐍𝐀̃𝐎 𝐃𝐄𝐅𝐈𝐍𝐈𝐃𝐀```__**",
-                    description="- > **Peça a um admin para definir a raça.**",
+                    description="- > **Use action:set para definir a raça antes de evoluir.**",
                     color=discord.Color.red()
                 )
                 await interaction.response.send_message(embed=embed, ephemeral=True)

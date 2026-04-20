@@ -200,7 +200,7 @@ def build_assist_pages():
         discord.Embed(title="``` 𝐀𝐉𝐔𝐃𝐀 - 𝐒𝐎𝐔𝐋 𝐖𝐀𝐍𝐃𝐄𝐑𝐈𝐍𝐆 ```", description="""
         **__𝐑𝐀𝐂̧𝐀 (𝐒𝐋𝐀𝐒𝐇)__**
         /race character_name:<nome> action:view|set|evolve race:<opcional> stage:<opcional>
-        - > **Mostra, define (admin) ou evolui o estágio racial do personagem.**
+        - > **Mostra, define ou evolui o estágio racial do personagem.**
 
         **__𝐑𝐄𝐈𝐑𝐘𝐎𝐊𝐔 (𝐒𝐋𝐀𝐒𝐇)__**
         /reiryoku character_name:<nome>

@@ -374,31 +374,40 @@ def register_commands(bot):
         await ctx.send(embed=embed, view=view)
 
     @bot.command(name='avatar', aliases=['av'])
-    async def avatar(ctx, *, name: str):
-        c.execute("SELECT image_url, message_id FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (name, ctx.author.id))
-        character = c.fetchone()
-        if not character:
-            await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Personagem não encontrado ou você não tem permissão para visualizar ou atualizar o avatar.**", discord.Color.red())
-        else:
+    async def avatar(ctx, *, name: Optional[str] = None):
+        if not name:
+            await send_embed(
+                ctx,
+                "**__```𝐅𝐎𝐑𝐌𝐀𝐓𝐎 𝐈𝐍𝐕𝐀́𝐋𝐈𝐃𝐎```__**",
+                "- > **Use: kill!avatar NomeDoPersonagem**",
+                discord.Color.red(),
+            )
+            return
+
+        try:
+            c.execute("SELECT image_url FROM characters WHERE name COLLATE NOCASE=? AND user_id=?", (name, ctx.author.id))
+            character = c.fetchone()
+            if not character:
+                await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Personagem não encontrado ou você não tem permissão para visualizar ou atualizar o avatar.**", discord.Color.red())
+                return
+
             if ctx.message.attachments:
                 image_url = ctx.message.attachments[0].url
-                message_id = ctx.message.id
-                c.execute("UPDATE characters SET image_url=?, message_id=? WHERE name COLLATE NOCASE=? AND user_id=?", (image_url, message_id, name, ctx.author.id))
+                c.execute("UPDATE characters SET image_url=? WHERE name COLLATE NOCASE=? AND user_id=?", (image_url, name, ctx.author.id))
                 conn.commit()
                 await send_embed(ctx, "**__```𝐀𝐕𝐀𝐓𝐀𝐑 𝐀𝐓𝐔𝐀𝐋𝐈𝐙𝐀𝐃𝐎!!!```__**", f"- > **Avatar do personagem __{name}__ atualizado com sucesso.**", discord.Color.green(), image_url, "use `kill!details NomeDoPersonagem` para revisar")
-            else:
-                image_url, message_id = character
-                if image_url:
-                    try:
-                        original_message = await ctx.channel.fetch_message(message_id)
-                        if original_message:
-                            await send_embed(ctx, f"**__```𝐀𝐕𝐀𝐓𝐀𝐑```__**", "", discord.Color.blue(), image_url)
-                    except discord.errors.NotFound:
-                        c.execute("UPDATE characters SET image_url=NULL, message_id=NULL WHERE name COLLATE NOCASE=? AND user_id=?", (name, ctx.author.id))
-                        conn.commit()
-                        await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **Nenhum avatar definido para o personagem {name}. Para definir um avatar, forneça um link direto para a imagem ou faça o upload como um anexo ao executar este comando.**", discord.Color.red())
-                else:
-                    await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **Nenhum avatar definido para o personagem {name}. Para definir um avatar, forneça um link direto para a imagem ou faça o upload como um anexo ao executar este comando.**", discord.Color.red())
+                return
+
+            image_url = character[0]
+            if image_url:
+                await send_embed(ctx, f"**__```𝐀𝐕𝐀𝐓𝐀𝐑```__**", "", discord.Color.blue(), image_url)
+                return
+
+            await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", f"- > **Nenhum avatar definido para o personagem {name}. Para definir um avatar, forneça um link direto para a imagem ou faça o upload como um anexo ao executar este comando.**", discord.Color.red())
+        except discord.DiscordException:
+            await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Não foi possível enviar o avatar no Discord agora. Tente novamente em instantes.**", discord.Color.red())
+        except Exception:
+            await send_embed(ctx, "**__```𝐄𝐑𝐑𝐎```__**", "- > **Falha inesperada ao processar o comando avatar.**", discord.Color.red())
 
     @bot.command(name='rename', aliases=['ren'])
     async def rename(ctx, *, args: str):
